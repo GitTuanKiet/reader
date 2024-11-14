@@ -1,0 +1,14 @@
+services:
+  crawl:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: crawl
+    ports:
+      - "4444:3000"
+    volumes:
+      - ./backend/functions/.firebase:/usr/src/app/.firebase
+    environment:
+      BASE_URI: ${BASE_URI:-http://localhost:4444}
+      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: true
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome-stable

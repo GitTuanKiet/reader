@@ -20,7 +20,9 @@ import { getFunctions } from 'firebase-admin/functions';
 import { SnapshotFormatter } from '../services/snapshot-formatter';
 import { getFunctionUrl } from '../utils/get-function-url';
 
-dayjs.extend(require('dayjs/plugin/utc'));
+import dayjsPluginUTC from 'dayjs/plugin/utc';
+dayjs.extend(dayjsPluginUTC);
+// dayjs.extend(require('dayjs/plugin/utc'));
 
 @singleton()
 export class DataCrunchingHost extends RPCHost {
