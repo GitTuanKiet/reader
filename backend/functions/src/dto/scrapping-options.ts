@@ -16,6 +16,25 @@ const CONTENT_FORMAT_VALUES = new Set<string>(Object.values(CONTENT_FORMAT));
 export const IMAGE_RETENTION_MODES = ['none', 'all', 'alt', 'all_p', 'alt_p'] as const;
 const IMAGE_RETENTION_MODE_VALUES = new Set<string>(IMAGE_RETENTION_MODES);
 
+class Viewport extends AutoCastable {
+    @Prop({
+        default: 1024
+    })
+    width!: number;
+    @Prop({
+        default: 1024
+    })
+    height!: number;
+    @Prop()
+    deviceScaleFactor?: number;
+    @Prop()
+    isMobile?: boolean;
+    @Prop()
+    isLandscape?: boolean;
+    @Prop()
+    hasTouch?: boolean;
+}
+
 @Also({
     openapi: {
         operation: {
@@ -156,6 +175,11 @@ const IMAGE_RETENTION_MODE_VALUES = new Set<string>(IMAGE_RETENTION_MODES);
                     description: 'Specify referer for the page.',
                     in: 'header',
                     schema: { type: 'string' }
+                },
+                'X-Token-Budget': {
+                    description: 'Specify a budget in tokens.\n\nIf the resulting token cost exceeds the budget, the request is rejected.',
+                    in: 'header',
+                    schema: { type: 'string' }
                 }
             }
         }
@@ -270,6 +294,12 @@ export class CrawlerOptions extends AutoCastable {
 
     @Prop()
     referer?: string;
+
+    @Prop()
+    tokenBudget?: number;
+
+    @Prop()
+    viewport?: Viewport;
 
     static override from(input: any) {
         const instance = super.from(input) as CrawlerOptions;
@@ -387,6 +417,13 @@ export class CrawlerOptions extends AutoCastable {
             instance.cacheTolerance = instance.cacheTolerance * 1000;
         }
 
+        const tokenBudget = ctx?.req.get('x-token-budget') || undefined;
+        instance.tokenBudget ??= parseInt(tokenBudget || '') || undefined;
+
+        if (instance.cacheTolerance) {
+            instance.cacheTolerance = instance.cacheTolerance * 1000;
+        }
+
         return instance;
     }
 
@@ -415,6 +452,9 @@ export class CrawlerOptions extends AutoCastable {
             return false;
         }
         if (this.injectFrameScript?.length || this.injectPageScript?.length) {
+            return false;
+        }
+        if (this.viewport) {
             return false;
         }
 
