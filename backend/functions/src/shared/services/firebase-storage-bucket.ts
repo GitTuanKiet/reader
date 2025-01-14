@@ -33,21 +33,11 @@ export class FirebaseStorageBucketControl extends AsyncService {
         };
     }
 
-    // async uploadFile(filePath: string, destination: string): Promise<string> {
-    //     const destPath = path.join(this.localStorageDir, destination);
-    //     await fs.promises.copyFile(filePath, destPath);
-    //     return `file://${destPath}`;
-    // }
-
-    // async deleteFile(filePath: string): Promise<void> {
-    //     const fullPath = path.join(this.localStorageDir, filePath);
-    //     await fs.promises.unlink(fullPath);
-    // }
-
-    // async fileExists(filePath: string): Promise<boolean> {
-    //     const fullPath = path.join(this.localStorageDir, filePath);
-    //     return fs.existsSync(fullPath);
-    // }
+    private async ensureDirExists(dir: string) {
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+    }
 
     async downloadFile(filePath: string | unknown): Promise<Buffer> {
         const sourcePath = path.join(this.localStorageDir, filePath as string);
@@ -80,6 +70,7 @@ export class FirebaseStorageBucketControl extends AsyncService {
         }
 
         const fullPath = path.join(this.localStorageDir, `${finalFilePath}${ext}`);
+        await this.ensureDirExists(path.dirname(fullPath));
         await fs.promises.writeFile(fullPath, content);
     }
 

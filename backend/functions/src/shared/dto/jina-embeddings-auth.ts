@@ -8,15 +8,18 @@ export class JinaEmbeddingsAuthDTO {
     }
 
     solveUID(...args: any[]): Promise<string | undefined> {
-        return Promise.resolve(undefined);
+        return Promise.resolve("su");
     }
 
     assertUser(...args: any[]): Promise<JinaEmbeddingsTokenAccount> {
-        return Promise.resolve(new JinaEmbeddingsTokenAccount('', '', { total_balance: 1_000_000 }, {}));
+        return Promise.resolve(new JinaEmbeddingsTokenAccount('su', 'su', { total_balance: 1_000_000 }, {}));
     }
 
     getRateLimits(...args: any[]): RateLimitDesc[] {
-        return [];
+        return [RateLimitDesc.from({
+            occurrence: 1_000_000,
+            periodSeconds: 1
+        })];
     }
 
     reportUsage(...args: any[]): Promise<void> {

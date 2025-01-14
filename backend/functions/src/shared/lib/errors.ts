@@ -25,3 +25,10 @@ export class InsufficientBalanceError extends Error {
         this.name = 'InsufficientBalanceError';
     }
 }
+
+export class BudgetExceededError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'BudgetExceededError';
+    }
+}

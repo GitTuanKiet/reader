@@ -6,36 +6,48 @@ RUN apt-get update && apt-get install dumb-init gnupg wget -y && \
     sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list' && \
     apt-get update && \
     apt-get install google-chrome-stable -y --no-install-recommends && \
-    apt-get purge --auto-remove -y curl && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 
 FROM node:20-bullseye-slim AS builder
 
-# install and build
-RUN mkdir -p /temp/dev
-COPY backend/functions ./temp/dev/
-RUN cd /temp/dev && npm ci
+WORKDIR /app
 
-# install with --production (exclude devDependencies)
-RUN mkdir -p /temp/prod
-COPY backend/functions/package*.json ./temp/prod/
-RUN cd /temp/prod && npm ci --production --omit=dev
+COPY backend/functions/package*.json ./
 
-# build
+RUN npm ci --production --omit=dev
+
+COPY backend/functions .
+
 ENV NODE_ENV=production
-RUN cd /temp/dev && npm run build
+RUN npm run build
 
-FROM base AS crawl
+FROM base AS crawler
+
 WORKDIR /usr/src/app
 
-COPY --from=builder /temp/prod/node_modules /usr/src/app/node_modules
-COPY --from=builder /temp/dev/build /usr/src/app
+COPY --from=builder /app/build ./
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /usr/local/bin/node /usr/local/bin/
 COPY --from=builder /usr/local/bin/docker-entrypoint.sh /usr/local/bin/
+
+ENV NODE_ENV=production \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+
 ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["dumb-init", "node", "api/crawler.js"]
+
+FROM base AS searcher
+
+WORKDIR /usr/src/app
+
+COPY --from=builder /app/build ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /usr/local/bin/node /usr/local/bin/
+COPY --from=builder /usr/local/bin/docker-entrypoint.sh /usr/local/bin/
 
 ENV NODE_ENV=production
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 
-CMD ["dumb-init", "node", "server.js"]
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["dumb-init", "node", "api/searcher.js"]

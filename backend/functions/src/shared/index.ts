@@ -5,15 +5,15 @@ export { TempFileManager } from './services/temp-file-manager';
 export * from './lib/errors';
 
 if (process.env.NODE_ENV === 'production') {
-    if (!process.env.BASE_URI) {
-        throw new Error('BASE_URI environment variable is required in production');
+    if (!process.env.BASE_URL) {
+        throw new Error('BASE_URL environment variable is required in production');
     }
 }
 
 export function getBaseUri() {
     let baseUri;
     if (process.env.NODE_ENV === 'production') {
-        baseUri = process.env.BASE_URI!;
+        baseUri = process.env.BASE_URL!;
     } else {
         baseUri = 'http://localhost:3000';
     }
@@ -57,14 +57,27 @@ export class OutputServerEventStream {
 
 export function Param(paramName: string, options?: { default?: any, validate?: (value: any) => boolean; }) {
     return function (target: any, propertyKey: string, parameterIndex: number) {
-        // Implement logic to map parameter to method parameter
-        console.log(`Mapping parameter ${paramName} to method parameter at index ${parameterIndex}`);
-        if (options?.validate) {
-            const value = target[propertyKey].arguments[parameterIndex];
-            if (!options.validate(value)) {
-                throw new Error(`Invalid value for parameter ${paramName}`);
+        const existingValidations = Reflect.getOwnMetadata('validations', target, propertyKey) || [];
+        existingValidations.push({
+            paramName,
+            index: parameterIndex,
+            validate: options?.validate,
+            default: options?.default
+        });
+        Reflect.defineMetadata('validations', existingValidations, target, propertyKey);
+
+        const originalMethod = target[propertyKey];
+        target[propertyKey] = function (...args: any[]) {
+            if (options?.validate && args[parameterIndex] !== undefined) {
+                if (!options.validate(args[parameterIndex])) {
+                    throw new Error(`Invalid value for parameter ${paramName}`);
+                }
             }
-        }
+            if (options?.default !== undefined && args[parameterIndex] === undefined) {
+                args[parameterIndex] = options.default;
+            }
+            return originalMethod.apply(this, args);
+        };
     };
 }
 

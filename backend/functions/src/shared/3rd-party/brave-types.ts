@@ -10,11 +10,13 @@ export interface WebSearchOptionalHeaderOptions {
 }
 
 export interface WebSearchApiResponse {
-    web: any;
+    web?: {
+        results: SearchResult[];
+    };
 }
 
 export interface SearchResult {
-    url: string;
     title: string;
-    description: string;
+    url: string;
+    description?: string;
 }
