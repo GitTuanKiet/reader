@@ -15,12 +15,14 @@ WORKDIR /app
 
 COPY backend/functions/package*.json ./
 
-RUN npm ci --production --omit=dev
+RUN npm ci
 
 COPY backend/functions .
 
 ENV NODE_ENV=production
 RUN npm run build
+
+RUN npm ci --production --omit=dev
 
 FROM base AS crawler
 
