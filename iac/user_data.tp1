@@ -1,0 +1,20 @@
+#!/bin/bash
+# check output of userdata script with sudo tail -f /var/log/cloud-init-output.log
+
+sudo apt-get update
+curl -fsSL https://get.docker.com | sh
+sudo apt-get install docker-compose-plugin -y
+
+sudo systemctl enable docker
+sudo systemctl start docker
+
+mkdir -p /home/reader
+git clone https://github.com/GitTuanKiet/reader /home/reader
+cat <<EOF >/home/reader/backend/functions/.env
+${env_content}
+EOF
+
+cd /home/reader
+sudo docker compose up -d
+echo "Container ID: $(sudo docker ps --latest --quiet)"
+echo "Setup complete! Reader instance is now online!"

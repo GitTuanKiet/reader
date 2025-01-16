@@ -4,6 +4,7 @@
 *docker-compose*
 *.firebase*
 *node_modules*
+iac
 npm-debug.log
 Dockerfile
 .dockerignore
