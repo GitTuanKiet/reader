@@ -1,9 +1,8 @@
 .git
-*.gitingore*
-*Dockerfile*
-*docker-compose*
-*.firebase*
-*node_modules*
+.gitingore
+Dockerfile
+docker-compose.yaml
+node_modules
 iac
 npm-debug.log
 Dockerfile

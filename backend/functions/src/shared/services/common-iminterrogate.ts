@@ -80,7 +80,7 @@ export class ImageInterrogationManager extends AsyncService {
         return output as unknown as string;
     }
 
-    async interrogate(serviceName: string, options: { image: Buffer, prompt?: string; }): Promise<string> {
+    async interrogate(serviceName: string, options: { image: Buffer, prompt?: string; system?: string; }): Promise<string> {
         if (serviceName === 'blip2' && this.replicate) {
             try {
                 return await this.replicateCaption(options.image, options.prompt);
