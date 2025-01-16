@@ -72,7 +72,7 @@ export interface PageSnapshot {
 }
 
 export interface ExtendedSnapshot extends PageSnapshot {
-    links: { [url: string]: string; };
+    links: [string, string][];
     imgs: ImgBrief[];
 }
 
