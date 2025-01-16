@@ -35,7 +35,7 @@ services:
     env_file:
       - ./backend/functions/.env
     environment:
-      BASE_URL: ${BASE_URL:-http://localhost:4445}
+      BASE_URL: ${BASE_URL:-http://localhost:4444}
       PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: true
       PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome-stable
     healthcheck:

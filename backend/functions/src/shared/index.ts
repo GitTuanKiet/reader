@@ -10,7 +10,7 @@ if (process.env.NODE_ENV === 'production') {
     }
 }
 
-export function getBaseUri() {
+export function getBaseUrl() {
     let baseUri;
     if (process.env.NODE_ENV === 'production') {
         baseUri = process.env.BASE_URL!;

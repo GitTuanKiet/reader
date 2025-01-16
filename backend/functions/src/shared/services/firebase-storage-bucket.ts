@@ -3,7 +3,7 @@ import { AsyncService } from 'civkit';
 import fs from 'fs';
 import path from 'path';
 import { Gzip } from 'zlib';
-import { getBaseUri } from '..';
+import { getBaseUrl } from '..';
 
 @singleton()
 export class FirebaseStorageBucketControl extends AsyncService {
@@ -89,6 +89,6 @@ export class FirebaseStorageBucketControl extends AsyncService {
             throw new Error('Image not found');
         }
 
-        return `${getBaseUri()}/${finalFilePath}`;
+        return `${getBaseUrl()}/${finalFilePath}`;
     }
 }
