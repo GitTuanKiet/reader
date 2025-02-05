@@ -5,13 +5,7 @@ import { Logger } from './logger';
 export type LLMOptions = {
     system?: string;
     stream?: boolean;
-    modelSpecific?: {
-        top_k?: number;
-        temperature?: number;
-        repetition_penalty?: number;
-        presence_penalty?: number;
-        max_tokens?: number;
-    };
+    modelSpecific?: Record<string, any>;
 };
 
 @singleton()
