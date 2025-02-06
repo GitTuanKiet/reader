@@ -1,5 +1,20 @@
 FROM lwthiker/curl-impersonate:0.6-chrome-slim-bullseye
 
+FROM node:20 AS builder
+
+WORKDIR /temp/dev
+
+COPY backend/functions/package.json backend/functions/package-lock.json ./
+RUN npm ci
+
+COPY backend/functions ./
+RUN npm run build
+
+WORKDIR /temp/prod
+
+COPY backend/functions/package.json backend/functions/package-lock.json ./
+RUN npm ci --production --omit=dev
+
 FROM node:20 AS base
 
 # Install Chrome and required fonts
@@ -20,18 +35,24 @@ COPY --from=0 /usr/local/lib/libcurl-impersonate.so /usr/local/lib/libcurl-imper
 
 WORKDIR /usr/src/app
 
-COPY backend/functions/package.json backend/functions/package-lock.json ./
-RUN npm ci --production --omit=dev
+COPY --from=builder /temp/dev/build ./
+COPY --from=builder /temp/prod/node_modules ./node_modules
 
-COPY backend/functions/build ./
+# COPY backend/functions/package.json backend/functions/package-lock.json ./
+# RUN npm ci --production --omit=dev
+
+# COPY backend/functions/build ./
 COPY backend/functions/public ./public
-COPY backend/functions/licensed ./licensed
+# COPY backend/functions/licensed ./licensed
+
+RUN mkdir -p ./licensed
+RUN curl -o ./licensed/GeoLite2-City.mmdb https://git.io/GeoLite2-City.mmdb
 
 RUN rm -rf ~/.config/chromium && mkdir -p ~/.config/chromium
 
 ENV LD_PRELOAD=/usr/local/lib/libcurl-impersonate.so CURL_IMPERSONATE=chrome116 CURL_IMPERSONATE_HEADERS=no
 
-EXPOSE 3000 3001 8080 8081
+# EXPOSE 3000 3001 8080 8081
 ENTRYPOINT ["node"]
 
 FROM base AS crawler

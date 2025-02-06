@@ -1157,6 +1157,5 @@ const launchOptions = process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD ? {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--single-process',
-        '--allow-insecure-localhost'
     ]
 } : { args: ['--disable-dev-shm-usage'] };
