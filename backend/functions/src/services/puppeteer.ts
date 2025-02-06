@@ -18,6 +18,15 @@ const tldExtract = require('tld-extract');
 
 const READABILITY_JS = fs.readFileSync(require.resolve('@mozilla/readability/Readability.js'), 'utf-8');
 
+const launchOptions = process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD ? {
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome',
+    args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--single-process'
+    ]
+} : {};
 
 export interface ImgBrief {
     src: string;
@@ -500,7 +509,7 @@ export class PuppeteerControl extends AsyncService {
         }
         this.browser = await puppeteer.launch({
             timeout: 10_000,
-            args: ['--disable-dev-shm-usage']
+            ...launchOptions
         }).catch((err: any) => {
             this.logger.error(`Unknown firebase issue, just die fast.`, { err });
             process.nextTick(() => {
