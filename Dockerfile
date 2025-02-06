@@ -1,55 +1,43 @@
-FROM debian:bullseye-slim AS base
+FROM lwthiker/curl-impersonate:0.6-chrome-slim-bullseye
 
-# Install Chrome
-RUN apt-get update && apt-get install dumb-init gnupg wget -y && \
-    wget --quiet --output-document=- https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor > /etc/apt/trusted.gpg.d/google-archive.gpg && \
-    sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list' && \
-    apt-get update && \
-    apt-get install google-chrome-stable -y --no-install-recommends && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /var/cache/apt/*
+FROM node:20 AS base
 
-FROM node:20-bullseye-slim AS builder
+# Install Chrome and required fonts
+RUN apt-get update \
+    && apt-get install -y wget gnupg \
+    && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list' \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf libxss1 \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+COPY --from=0 /usr/local/lib/libcurl-impersonate.so /usr/local/lib/libcurl-impersonate.so
 
-COPY backend/functions/package*.json ./
+# RUN groupadd -r jina
+# RUN useradd -g jina  -G audio,video -m jina
+# USER jina
 
-RUN npm ci
+WORKDIR /usr/src/app
 
-COPY backend/functions .
-
-ENV NODE_ENV=production
-RUN npm run build
-
+COPY backend/functions/package.json backend/functions/package-lock.json ./
 RUN npm ci --production --omit=dev
+
+COPY backend/functions/build ./
+COPY backend/functions/public ./public
+COPY backend/functions/licensed ./licensed
+
+RUN rm -rf ~/.config/chromium && mkdir -p ~/.config/chromium
+
+ENV LD_PRELOAD=/usr/local/lib/libcurl-impersonate.so CURL_IMPERSONATE=chrome116 CURL_IMPERSONATE_HEADERS=no
+
+EXPOSE 3000 3001 8080 8081
+ENTRYPOINT ["node"]
 
 FROM base AS crawler
 
-WORKDIR /usr/src/app
-
-COPY --from=builder /app/build ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /usr/local/bin/node /usr/local/bin/
-COPY --from=builder /usr/local/bin/docker-entrypoint.sh /usr/local/bin/
-
-ENV NODE_ENV=production \
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
-
-ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["dumb-init", "node", "api/crawler.js"]
+CMD ["api/crawler.js"]
 
 FROM base AS searcher
 
-WORKDIR /usr/src/app
-
-COPY --from=builder /app/build ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /usr/local/bin/node /usr/local/bin/
-COPY --from=builder /usr/local/bin/docker-entrypoint.sh /usr/local/bin/
-
-ENV NODE_ENV=production
-
-ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["dumb-init", "node", "api/searcher.js"]
+CMD ["api/searcher.js"]

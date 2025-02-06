@@ -18,15 +18,6 @@ const tldExtract = require('tld-extract');
 
 const READABILITY_JS = fs.readFileSync(require.resolve('@mozilla/readability/Readability.js'), 'utf-8');
 
-const launchOptions = process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD ? {
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome',
-    args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--single-process'
-    ]
-} : {};
 
 export interface ImgBrief {
     src: string;
@@ -1158,3 +1149,14 @@ export class PuppeteerControl extends AsyncService {
 const puppeteerControl = container.resolve(PuppeteerControl);
 
 export default puppeteerControl;
+
+const launchOptions = process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD ? {
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome',
+    args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--single-process',
+        '--allow-insecure-localhost'
+    ]
+} : { args: ['--disable-dev-shm-usage'] };

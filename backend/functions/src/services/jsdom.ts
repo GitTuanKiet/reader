@@ -283,7 +283,7 @@ export class JSDomControl extends AsyncService {
             currentNode.parentNode?.removeChild(currentNode); // Remove each comment node
         }
 
-        jsdom.window.document.querySelectorAll('*').forEach((x)=> {
+        jsdom.window.document.querySelectorAll('*').forEach((x) => {
             const attrs = x.getAttributeNames();
             for (const attr of attrs) {
                 if (attr.startsWith('data-') || attr.startsWith('aria-')) {

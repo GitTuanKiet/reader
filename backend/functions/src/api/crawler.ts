@@ -3,8 +3,7 @@ import express from 'express';
 import { container } from 'tsyringe';
 import path from 'path';
 import fs from 'fs';
-import { RPC_MARSHAL, RPC_TRANSFER_PROTOCOL_META_SYMBOL, RPC_CALL_ENVIRONMENT, RPCReflection } from 'civkit';
-
+import { RPC_MARSHAL, RPC_CALL_ENVIRONMENT, RPCReflection, extractTransferProtocolMeta } from 'civkit';
 import { OutputServerEventStream } from '../shared';
 import { JinaEmbeddingsAuthDTO } from '../shared/dto/jina-embeddings-auth';
 import { CrawlerOptions, CrawlerOptionsHeaderOnly } from '../dto/scrapping-options';
@@ -15,8 +14,7 @@ const port = process.env.PORT || 3000;
 
 const crawlerHost = container.resolve(CrawlerHost);
 (async () => {
-    const { JSDomControl } = require('../services/jsdom');
-    await (container.resolve(JSDomControl) as typeof JSDomControl).init();
+    await crawlerHost.init();
 })();
 
 app.use(express.json());
@@ -28,10 +26,11 @@ app.all('*', async (req, res) => {
     try {
         const ctx = { req, res };
         let options;
+        const input = { [RPC_CALL_ENVIRONMENT]: ctx };
         if (req.method === 'GET') {
-            options = CrawlerOptionsHeaderOnly.from({ [RPC_CALL_ENVIRONMENT]: ctx });
+            options = CrawlerOptionsHeaderOnly.from(input);
         } else if (req.method === 'POST') {
-            options = CrawlerOptions.from({ [RPC_CALL_ENVIRONMENT]: ctx });
+            options = CrawlerOptions.from(input);
         } else {
             return res.status(405).json({ error: 'Method not allowed' });
         }
@@ -63,8 +62,7 @@ app.all('*', async (req, res) => {
 
         const result = await crawlerHost.crawl(rpcReflection, ctx, auth, options, options);
 
-        const meta = result[RPC_TRANSFER_PROTOCOL_META_SYMBOL];
-
+        const meta = extractTransferProtocolMeta(result);
         if (meta) {
             if (meta.code)
                 res.status(meta.code);
@@ -82,15 +80,22 @@ app.all('*', async (req, res) => {
             }
         }
 
-        if ('toJSON' in result && typeof result.toJSON === 'function') {
-            return res.send(result.toJSON());
+        if (
+            ('toJSON' in result && typeof result.toJSON === 'function') ||
+            (result[RPC_MARSHAL] && typeof result[RPC_MARSHAL] === 'function')
+        ) {
+            const resultJSON = result.toJSON ? result.toJSON() : result[RPC_MARSHAL]();
+
+            return res.send(resultJSON);
         }
 
-        if (result[RPC_MARSHAL] && typeof result[RPC_MARSHAL] === 'function') {
-            return res.send(result[RPC_MARSHAL]());
-        }
-
-        return res.send(result);
+        return res
+            .status(200)
+            .json({
+                code: 200,
+                status: 20000,
+                data: result
+            });
     } catch (error) {
         console.error('Error during crawl:', error);
 

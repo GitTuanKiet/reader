@@ -1,3 +1,5 @@
+import { container } from 'tsyringe';
+import { RequestHandler } from 'express';
 export { AsyncContext } from './services/async-context';
 export { Logger } from './services/logger';
 export { FirebaseStorageBucketControl } from './services/firebase-storage-bucket';
@@ -21,9 +23,41 @@ export function getBaseUrl() {
     return baseUri.endsWith('/') ? baseUri.slice(0, -1) : baseUri;
 }
 
-export function CloudHTTPv2(config: any): MethodDecorator {
+interface CloudHTTPv2Config {
+    path?: string;
+    name?: string;
+    runtime?: {
+        memory: string;
+        timeoutSeconds: number;
+        concurrency: number;
+        [key: string]: any;
+    };
+    tags?: string[];
+    httpMethod?: string[];
+    returnType?: any;
+    exposeRoot?: boolean;
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+    openapi?: {
+        tags?: string[];
+        summary?: string;
+        description?: string;
+        [key: string]: any;
+    };
+    [key: string]: any;
+}
+
+export function CloudHTTPv2(config: CloudHTTPv2Config): MethodDecorator {
     return function (target: any, propertyKey: string | symbol, descriptor: PropertyDescriptor) {
-        // Simplified implementation
+        // Store the configuration in registry
+        const registry = container.resolve(CloudFunctionRegistry);
+        registry.setConfig(String(propertyKey), config);
+
+        Reflect.defineMetadata('openapi', {
+            tags: config.openapi?.tags || [],
+            summary: config.openapi?.summary || '',
+            description: config.openapi?.description || ''
+        }, target, propertyKey);
+
         console.log(`CloudHTTPv2 decorator applied to ${String(propertyKey)}`);
         return descriptor;
     };
@@ -109,3 +143,45 @@ export const registry = {
         console.log(`All hands on deck...`);
     }
 };
+
+export class CloudFunctionRegistry {
+    title: string;
+    version: string;
+    logoUrl: string;
+    expressMiddlewares: any[];
+    private configurations: Map<string, any> = new Map();
+
+    constructor() {
+        this.title = 'Registry';
+        this.version = '1.0.0';
+        this.logoUrl = '/public/favicon.ico';
+        this.expressMiddlewares = [];
+    }
+
+    get conf() {
+        return {
+            baseUrl: getBaseUrl(),
+            environment: process.env.NODE_ENV || 'development',
+            get: <T>(key: string, defaultValue?: T): T | undefined => {
+                return this.configurations.get(key) ?? defaultValue;
+            }
+        };
+    };
+
+    setConfig(key: string, config: any) {
+        this.configurations.set(key, config);
+    }
+
+    async allHandsOnDeck() {
+        console.log('All hands on deck...');
+    }
+
+    makeShimController(handler: RequestHandler | string): RequestHandler {
+        if (typeof handler === 'string') {
+            return (req, res, next) => {
+                res.send(`Handler ${handler} not implemented`);
+            };
+        }
+        return handler;
+    }
+}
