@@ -1,12 +1,13 @@
 services:
-  crawl:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
-      target: crawler
+      target: combined
     restart: always
     ports:
       - "4444:3000"
+      - "4445:3001"
     volumes:
       - ./backend/functions/.firebase:/usr/src/app/.firebase
     env_file:
@@ -20,25 +21,46 @@ services:
       timeout: 10s
       retries: 3
       start_period: 5s
+    # crawl:
+    #   build:
+    #     context: .
+    #     dockerfile: Dockerfile
+    #     target: crawler
+    #   restart: always
+    #   ports:
+    #     - "4444:3000"
+    #   volumes:
+    #     - ./backend/functions/.firebase:/usr/src/app/.firebase
+    #   env_file:
+    #     - ./backend/functions/.env
+    #   environment:
+    #     BASE_URL: ${BASE_URL:-http://localhost:4444}
+    #     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: true
+    #   healthcheck:
+    #     test: rm -rf /usr/src/app/.firebase/* || exit 0
+    #     interval: 24h
+    #     timeout: 10s
+    #     retries: 3
+    #     start_period: 5s
 
-  search:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: searcher
-    restart: always
-    ports:
-      - "4445:3000"
-    volumes:
-      - ./backend/functions/.firebase:/usr/src/app/.firebase
-    env_file:
-      - ./backend/functions/.env
-    environment:
-      BASE_URL: ${BASE_URL:-http://localhost:4444}
-      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: true
-    healthcheck:
-      test: rm -rf /usr/src/app/.firebase/* || exit 0
-      interval: 24h
-      timeout: 10s
-      retries: 3
-      start_period: 5s
+    # search:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    #   target: searcher
+    # restart: always
+    # ports:
+    #   - "4445:3001"
+    # volumes:
+    #   - ./backend/functions/.firebase:/usr/src/app/.firebase
+    # env_file:
+    #   - ./backend/functions/.env
+    # environment:
+    #   BASE_URL: ${BASE_URL:-http://localhost:4444}
+    #   PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: true
+    # healthcheck:
+    #   test: rm -rf /usr/src/app/.firebase/* || exit 0
+    #   interval: 24h
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 5s

@@ -55,10 +55,14 @@ ENV LD_PRELOAD=/usr/local/lib/libcurl-impersonate.so CURL_IMPERSONATE=chrome116 
 # EXPOSE 3000 3001 8080 8081
 ENTRYPOINT ["node"]
 
-FROM base AS crawler
+# FROM base AS crawler
 
-CMD ["api/crawler.js"]
+# CMD ["api/crawler.js"]
 
-FROM base AS searcher
+# FROM base AS searcher
 
-CMD ["api/searcher.js"]
+# CMD ["api/searcher.js"]
+
+FROM base AS combined
+
+CMD ["-e", "require('./api/crawler.js'); require('./api/searcher.js')"]
