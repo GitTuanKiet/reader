@@ -1,4 +1,31 @@
+volumes:
+  minio-data:
+  model-data:
+
+
 services:
+  # minio:
+  #   image: minio/minio:latest
+  #   restart: always
+  #   ports:
+  #     - "9000:9000"
+  #     - "9001:9001"
+  #   environment:
+  #     MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+  #     MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio123}
+  #     MINIO_DOMAIN: ${MINIO_DOMAIN}
+  #     MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_API_CORS_ALLOW_ORIGIN:-*}
+  #   volumes:
+  #     - minio-data:/data
+  #   command: server /data --console-address ":9001" --address ":9000"
+
+  reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
+    restart: always
+    volumes:
+      - model-data:/data
+    command: [ "--model-id", "BAAI/bge-reranker-base" ]
+
   app:
     build:
       context: .
@@ -8,19 +35,19 @@ services:
     ports:
       - "4444:3000"
       - "4445:3001"
+      - "4446:3002"
     volumes:
       - ./backend/functions/.firebase:/usr/src/app/.firebase
     env_file:
       - ./backend/functions/.env
     environment:
-      BASE_URL: ${BASE_URL:-http://localhost:4444}
       PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: true
     healthcheck:
       test: rm -rf /usr/src/app/.firebase/* || exit 0
-      interval: 24h
-      timeout: 10s
-      retries: 3
-      start_period: 5s
+      interval: 1h
+      timeout: 1m
+      retries: 1
+      start_period: 1s
     # crawl:
     #   build:
     #     context: .
@@ -34,7 +61,6 @@ services:
     #   env_file:
     #     - ./backend/functions/.env
     #   environment:
-    #     BASE_URL: ${BASE_URL:-http://localhost:4444}
     #     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: true
     #   healthcheck:
     #     test: rm -rf /usr/src/app/.firebase/* || exit 0
@@ -56,7 +82,6 @@ services:
     # env_file:
     #   - ./backend/functions/.env
     # environment:
-    #   BASE_URL: ${BASE_URL:-http://localhost:4444}
     #   PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: true
     # healthcheck:
     #   test: rm -rf /usr/src/app/.firebase/* || exit 0
@@ -64,3 +89,24 @@ services:
     #   timeout: 10s
     #   retries: 3
     #   start_period: 5s
+
+    # adaptive-crawler:
+    #   build:
+    #     context: .
+    #     dockerfile: Dockerfile
+    #     target: adaptive-crawler
+    #   restart: always
+    #   ports:
+    #     - "4446:3002"
+    #   volumes:
+    #     - ./backend/functions/.firebase:/usr/src/app/.firebase
+    #   env_file:
+    #     - ./backend/functions/.env
+    #   environment:
+    #     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: true
+    #   healthcheck:
+    #     test: rm -rf /usr/src/app/.firebase/* || exit 0
+    #     interval: 24h
+    #     timeout: 10s
+    #     retries: 3
+    #     start_period: 5s

@@ -38,15 +38,16 @@ WORKDIR /usr/src/app
 COPY --from=builder /temp/dev/build ./
 COPY --from=builder /temp/prod/node_modules ./node_modules
 
+RUN mkdir -p ./licensed
+RUN curl -o ./licensed/GeoLite2-City.mmdb https://git.io/GeoLite2-City.mmdb
+
+# COPY backend/functions/build ./
 # COPY backend/functions/package.json backend/functions/package-lock.json ./
 # RUN npm ci --production --omit=dev
 
-# COPY backend/functions/build ./
-COPY backend/functions/public ./public
 # COPY backend/functions/licensed ./licensed
 
-RUN mkdir -p ./licensed
-RUN curl -o ./licensed/GeoLite2-City.mmdb https://git.io/GeoLite2-City.mmdb
+COPY backend/functions/public ./public
 
 RUN rm -rf ~/.config/chromium && mkdir -p ~/.config/chromium
 
@@ -63,6 +64,10 @@ ENTRYPOINT ["node"]
 
 # CMD ["api/searcher.js"]
 
+# FROM base AS adaptive-crawler
+
+# CMD ["api/adaptive-crawler.js"]
+
 FROM base AS combined
 
-CMD ["-e", "require('./api/crawler.js'); require('./api/searcher.js')"]
+CMD ["-e", "require('./api/crawler.js'); require('./api/searcher.js'); require('./api/adaptive-crawler.js')"]

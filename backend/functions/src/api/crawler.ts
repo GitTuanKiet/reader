@@ -23,10 +23,25 @@ app.use(express.json());
 app.use('/instant-screenshots', express.static(path.resolve('.firebase', 'instant-screenshots')));
 
 app.all('*', async (req, res) => {
+    const brearerToken = req.headers.authorization?.split(' ')[1];
+    if (process.env.AUTH_TOKEN && brearerToken !== process.env.AUTH_TOKEN) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     try {
+        const rpcReflection = {
+            name: 'crawl',
+            finally: () => {
+                console.log('Mock: Finally called');
+            },
+            return: (stream: OutputServerEventStream) => {
+                console.log('Mock: Stream returned');
+            }
+        } as unknown as RPCReflection;
+        const auth = new JinaEmbeddingsAuthDTO();
         const ctx = { req, res };
         let options;
-        const input = { [RPC_CALL_ENVIRONMENT]: ctx };
+        const input = { ...req.body, [RPC_CALL_ENVIRONMENT]: ctx };
         if (req.method === 'GET') {
             options = CrawlerOptionsHeaderOnly.from(input);
         } else if (req.method === 'POST') {
@@ -48,17 +63,6 @@ app.all('*', async (req, res) => {
         if (noSlashURL === 'favicon.ico') {
             return res.status(404).type('text/plain').send('No favicon');
         }
-
-        const rpcReflection = {
-            name: 'crawl',
-            finally: () => {
-                console.log('Mock: Finally called');
-            },
-            return: (stream: OutputServerEventStream) => {
-                console.log('Mock: Stream returned');
-            }
-        } as unknown as RPCReflection;
-        const auth = new JinaEmbeddingsAuthDTO();
 
         const result = await crawlerHost.crawl(rpcReflection, ctx, auth, options, options);
 
@@ -111,16 +115,16 @@ app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
 
-// process.on('unhandledRejection', (_err) => `Somehow is false alarm in firebase`);
+process.on('unhandledRejection', (_err) => `Somehow is false alarm in firebase`);
 
-// process.on('uncaughtException', (err) => {
-//     console.log('Uncaught exception', err);
+process.on('uncaughtException', (err) => {
+    console.log('Uncaught exception', err);
 
-//     // Looks like Firebase runtime does not handle error properly.
-//     // Make sure to quit the process.
-//     process.nextTick(() => process.exit(1));
-//     console.error('Uncaught exception, process quit.');
-//     throw err;
-// });
+    // Looks like Firebase runtime does not handle error properly.
+    // Make sure to quit the process.
+    process.nextTick(() => process.exit(1));
+    console.error('Uncaught exception, process quit.');
+    throw err;
+});
 
 export default app;

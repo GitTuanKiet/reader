@@ -20,4 +20,12 @@ export class TempFileManager extends AbstractTempFileManger {
 
         this.emit('ready');
     }
+
+    override alloc(relativePath?: string): string {
+        const fpath = super.alloc(relativePath);
+        if (!fs.existsSync(this.rootDir)) {
+            fs.mkdirSync(this.rootDir, { recursive: true });
+        }
+        return fpath;
+    }
 }

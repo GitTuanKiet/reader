@@ -27,10 +27,25 @@ app.use(express.json());
 app.use('/instant-screenshots', express.static(path.resolve('.firebase', 'instant-screenshots')));
 
 app.all('*', async (req, res) => {
+    const brearerToken = req.headers.authorization?.split(' ')[1];
+    if (process.env.AUTH_TOKEN && brearerToken !== process.env.AUTH_TOKEN) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     try {
+        const rpcReflection = {
+            name: 'search',
+            finally: () => {
+                console.log('Mock: Finally called');
+            },
+            return: (stream: OutputServerEventStream) => {
+                console.log('Mock: Stream returned');
+            }
+        } as unknown as RPCReflection;
+        const auth = new JinaEmbeddingsAuthDTO();
         const ctx = { req, res };
         let options;
-        const input = { [RPC_CALL_ENVIRONMENT]: ctx };
+        const input = { ...req.body, [RPC_CALL_ENVIRONMENT]: ctx };
         if (req.method === 'GET') {
             options = CrawlerOptionsHeaderOnly.from(input);
         } else if (req.method === 'POST') {
@@ -56,24 +71,13 @@ app.all('*', async (req, res) => {
             return res.status(404).type('text/plain').send('No favicon');
         }
 
-        const rpcReflection = {
-            name: 'search',
-            finally: () => {
-                console.log('Mock: Finally called');
-            },
-            return: (stream: OutputServerEventStream) => {
-                console.log('Mock: Stream returned');
-            }
-        } as unknown as RPCReflection;
-        const auth = new JinaEmbeddingsAuthDTO();
-
         const result = await searcherHost.search(
             rpcReflection,
             ctx,
             auth,
             5,
             options,
-            BraveSearchExplicitOperatorsDto.from({ [RPC_CALL_ENVIRONMENT]: ctx }),
+            BraveSearchExplicitOperatorsDto.from(input),
             noSlashPath
 
         ) as any;
