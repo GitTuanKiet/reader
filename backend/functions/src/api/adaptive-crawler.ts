@@ -362,7 +362,13 @@ app.all('*', async (req, res) => {
                 const urls = input.urls;
 
                 const result = await adaptiveCrawlerHost.adaptiveCrawlStatus(rpcReflection, ctx, auth, taskId, urls);
-                return res.status(200).json(result);
+                return res
+                    .status(200)
+                    .json({
+                        code: 200,
+                        status: 20000,
+                        data: result
+                    });
             }
             crawlerOptions = CrawlerOptions.from(input);
         } else {
