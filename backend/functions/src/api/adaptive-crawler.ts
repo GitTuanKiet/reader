@@ -392,8 +392,13 @@ app.all('*', async (req, res) => {
             adaptiveCrawlerOptions
         );
 
-        return res.status(200).json(result);
-
+        return res
+            .status(200)
+            .json({
+                code: 200,
+                status: 20000,
+                data: result
+            });
     } catch (error) {
         console.error('Error during crawl:', error);
         if (error instanceof Error) {
