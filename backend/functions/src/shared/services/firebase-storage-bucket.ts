@@ -59,9 +59,6 @@ export class FirebaseStorageBucketControl extends AsyncService {
             case 'image/png':
                 ext = '.png';
                 break;
-            case 'application/json':
-                ext = '.json';
-                break;
         }
 
         let finalFilePath = filePath;
