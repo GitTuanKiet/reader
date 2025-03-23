@@ -22,29 +22,51 @@ export class GlobalLogger extends AbstractPinoLogger {
         }
     };
 
+    private initialized = false;
+
+    constructor() {
+        super();
+        this.init();
+    }
+
     override init(): void {
+        if (this.initialized) return;
+
         if (process.env['NODE_ENV']?.startsWith('prod')) {
             super.init(process.stdout);
         } else {
-            const PinoPretty = require('pino-pretty').PinoPretty;
-            super.init(PinoPretty({
-                singleLine: true,
-                colorize: true,
-                messageFormat(log: any, messageKey: any) {
-                    return `${log['tid'] ? `[${log['tid']}]` : ''}[${log['service'] || 'ROOT'}] ${log[messageKey]}`;
-                },
-            }));
+            try {
+                const PinoPretty = require('pino-pretty').PinoPretty;
+                super.init(PinoPretty({
+                    singleLine: true,
+                    colorize: true,
+                    messageFormat(log: any, messageKey: any) {
+                        return `${log['tid'] ? `[${log['tid']}]` : ''}[${log['service'] || 'ROOT'}] ${log[messageKey]}`;
+                    },
+                }));
+            } catch (error) {
+                console.warn('pino-pretty not available, falling back to standard output');
+                super.init(process.stdout);
+            }
         }
 
-
+        this.initialized = true;
         this.emit('ready');
     }
 
     override log(...args: any[]) {
+        // Ensure we have a valid target stream before proceeding
+        if (!this._targetStream) {
+            // Fallback to stdout if not initialized yet
+            console.warn('Logger used before fully initialized, falling back to console');
+            console.log(...args);
+            return true;
+        }
+
         const [levelObj, ...rest] = args;
         const severity = levelToSeverityMap[levelObj?.level];
         const traceCtx = getTraceCtx();
-        const patched: any= { ...levelObj, severity };
+        const patched: any = { ...levelObj, severity };
         const traceId = traceCtx?.googleTraceId || traceCtx?.traceId;
         if (traceId && process.env['GCLOUD_PROJECT']) {
             patched['logging.googleapis.com/trace'] = `projects/${process.env['GCLOUD_PROJECT']}/traces/${traceId}`;

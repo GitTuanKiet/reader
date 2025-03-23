@@ -14,6 +14,9 @@ const getEncoder = () => {
     return encoder;
 };
 
-export const countGPTToken = (text: string) => {
+export const countGPTToken = (text?: string) => {
+    if (!text) {
+        return 0;
+    }
     return getEncoder().encode(text).length;
 };

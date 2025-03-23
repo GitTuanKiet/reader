@@ -5,19 +5,37 @@ import path from 'path';
 import fs from 'fs';
 import { RPC_MARSHAL, RPC_CALL_ENVIRONMENT, RPCReflection, extractTransferProtocolMeta } from 'civkit';
 import { OutputServerEventStream } from '../shared';
-import { JinaEmbeddingsAuthDTO } from '../shared/dto/jina-embeddings-auth';
-import { CrawlerOptions, CrawlerOptionsHeaderOnly } from '../dto/scrapping-options';
-import { CrawlerHost } from '../cloud-functions/crawler';
+import { JinaEmbeddingsAuthDTO } from '../dto/jina-embeddings-auth';
+import { CrawlerOptions, CrawlerOptionsHeaderOnly } from '../dto/crawler-options';
+import { CrawlerHost } from '../api/crawler';
+import { AsyncLocalContext } from '../services/async-context';
+import { createKoaContextMock } from './_helpers';
+import { randomUUID } from 'crypto';
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 const crawlerHost = container.resolve(CrawlerHost);
 (async () => {
+    ;
     await crawlerHost.init();
 })();
 
 app.use(express.json());
+
+// Middleware asyncHooks
+const asyncLocalContext = container.resolve(AsyncLocalContext);
+const asyncHookMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const googleTraceId = req.get('x-cloud-trace-context')?.split('/')?.[0] || '';
+    asyncLocalContext.setup({
+        traceId: randomUUID(),
+        traceT0: new Date(),
+        googleTraceId,
+    });
+
+    next();
+};
+app.use(asyncHookMiddleware);
 
 // Serve static files from the local-storage directory
 app.use('/instant-screenshots', express.static(path.resolve('.firebase', 'instant-screenshots')));
@@ -36,10 +54,22 @@ app.all('*', async (req, res) => {
             },
             return: (stream: OutputServerEventStream) => {
                 console.log('Mock: Stream returned');
-            }
+            },
+            signal: { aborted: false }
         } as unknown as RPCReflection;
-        const auth = new JinaEmbeddingsAuthDTO();
-        const ctx = { req, res };
+
+        const ctx = createKoaContextMock(req, res);
+        const auth = JinaEmbeddingsAuthDTO.from({
+            _id: 'admin',
+            uid: 'admin',
+            user_id: 'admin',
+            full_name: 'admin',
+            wallet: { total_balance: 1_000_000_000 },
+            metadata: {},
+            _token: brearerToken,
+            [RPC_CALL_ENVIRONMENT]: ctx
+        });
+
         let options;
         const input = { ...req.body, [RPC_CALL_ENVIRONMENT]: ctx };
         if (req.method === 'GET') {

@@ -6,10 +6,11 @@ import fs from 'fs';
 import { RPC_MARSHAL, RPC_CALL_ENVIRONMENT, RPCReflection, extractTransferProtocolMeta } from 'civkit';
 
 import { OutputServerEventStream } from '../shared';
-import { JinaEmbeddingsAuthDTO } from '../shared/dto/jina-embeddings-auth';
-import { CrawlerOptions, CrawlerOptionsHeaderOnly } from '../dto/scrapping-options';
+import { JinaEmbeddingsAuthDTO } from '../dto/jina-embeddings-auth';
+import { CrawlerOptions, CrawlerOptionsHeaderOnly } from '../dto/crawler-options';
 import { BraveSearchExplicitOperatorsDto } from '../services/brave-search';
-import { SearcherHost } from '../cloud-functions/searcher';
+import { SearcherHost } from '../api/searcher';
+import { createKoaContextMock } from './_helpers';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -42,8 +43,19 @@ app.all('*', async (req, res) => {
                 console.log('Mock: Stream returned');
             }
         } as unknown as RPCReflection;
-        const auth = new JinaEmbeddingsAuthDTO();
-        const ctx = { req, res };
+
+        const ctx = createKoaContextMock(req, res);
+        const auth = JinaEmbeddingsAuthDTO.from({
+            _id: 'admin',
+            uid: 'admin',
+            user_id: 'admin',
+            full_name: 'admin',
+            wallet: { total_balance: 1_000_000_000 },
+            metadata: {},
+            _token: brearerToken,
+            [RPC_CALL_ENVIRONMENT]: ctx
+        });
+
         let options;
         const input = { ...req.body, [RPC_CALL_ENVIRONMENT]: ctx };
         if (req.method === 'GET') {

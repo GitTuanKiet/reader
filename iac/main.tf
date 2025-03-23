@@ -52,7 +52,7 @@ resource "digitalocean_droplet" "reader_instance" {
 }
 
 locals {
-  env_content = file("../backend/functions/.env")
+  env_content = file("../.env")
   formatted_env_content = join("\n", [
     for line in split("\n", local.env_content) :
     line

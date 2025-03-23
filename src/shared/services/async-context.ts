@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 
 @singleton()
 export class AsyncContext extends AbstractAsyncContext {
-    asyncLocalStorage: AsyncLocalStorage<any>;
+    override asyncLocalStorage: AsyncLocalStorage<any>;
 
     constructor() {
         super();

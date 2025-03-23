@@ -1,5 +1,6 @@
 export class SecurityCompromiseError extends Error {
-    constructor(message: string) {
+    constructor(params: { message: string; path?: string; } | string) {
+        const message = typeof params === 'string' ? params : params.message;
         super(message);
         this.name = 'SecurityCompromiseError';
     }

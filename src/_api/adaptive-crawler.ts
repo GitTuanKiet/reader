@@ -5,12 +5,13 @@ import path from 'path';
 import fs from 'fs';
 import { assignTransferProtocolMeta, HashManager, RPC_CALL_ENVIRONMENT, RPCReflection } from 'civkit';
 import { OutputServerEventStream } from '../shared';
-import { JinaEmbeddingsAuthDTO } from '../shared/dto/jina-embeddings-auth';
-import { CrawlerOptions, CrawlerOptionsHeaderOnly } from '../dto/scrapping-options';
+import { JinaEmbeddingsAuthDTO } from '../dto/jina-embeddings-auth';
+import { CrawlerOptions, CrawlerOptionsHeaderOnly } from '../dto/crawler-options';
 import { AdaptiveCrawlerHost } from '../cloud-functions/adaptive-crawler';
 import { AdaptiveCrawlerOptions } from '../dto/adaptive-crawler-options';
 import { AdaptiveCrawlTask, AdaptiveCrawlTaskStatus } from '../db/adaptive-crawl-task';
 import { Timestamp } from 'firebase-admin/firestore';
+import { createKoaContextMock } from './_helpers';
 
 const md5Hasher = new HashManager('md5', 'hex');
 const removeURLHash = (url: string) => {
@@ -349,8 +350,18 @@ app.all('*', async (req, res) => {
                 console.log('Mock: Stream returned');
             }
         } as unknown as RPCReflection;
-        const auth = new JinaEmbeddingsAuthDTO();
-        const ctx = { req, res };
+
+        const ctx = createKoaContextMock(req, res);
+        const auth = JinaEmbeddingsAuthDTO.from({
+            _id: 'admin',
+            uid: 'admin',
+            user_id: 'admin',
+            full_name: 'admin',
+            wallet: { total_balance: 1_000_000_000 },
+            metadata: {},
+            _token: brearerToken,
+            [RPC_CALL_ENVIRONMENT]: ctx
+        });
         const input = { ...req.body, [RPC_CALL_ENVIRONMENT]: ctx };
 
         let crawlerOptions: CrawlerOptions | CrawlerOptionsHeaderOnly;
@@ -361,7 +372,7 @@ app.all('*', async (req, res) => {
                 const taskId = input.taskId;
                 const urls = input.urls;
 
-                const result = await adaptiveCrawlerHost.adaptiveCrawlStatus(rpcReflection, ctx, auth, taskId, urls);
+                const result = await adaptiveCrawlerHost.adaptiveCrawlStatus(rpcReflection, { req, res }, auth, taskId, urls);
                 return res
                     .status(200)
                     .json({
@@ -392,7 +403,7 @@ app.all('*', async (req, res) => {
 
         const result = await adaptiveCrawlerHost.adaptiveCrawl(
             rpcReflection,
-            ctx,
+            { req, res },
             auth,
             crawlerOptions,
             adaptiveCrawlerOptions

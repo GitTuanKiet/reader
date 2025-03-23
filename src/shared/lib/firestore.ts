@@ -14,7 +14,7 @@ export class FirestoreRecord {
     _id?: string;
 
     static from(input: any): any {
-        for (const field of ['createdAt', 'finishedAt', 'expireAt']) {
+        for (const field of ['createdAt', 'finishedAt', 'expireAt', 'lastSyncedAt']) {
             if (input[field]) {
                 input[field] = new Date(input[field]);
             }
@@ -162,6 +162,26 @@ export class FirestoreRecord {
             }
         };
     };
+
+    static get OPS() {
+        return {
+            increment: (amount: number) => ({
+                _type: 'increment',
+                amount
+            }),
+            arrayUnion: (...elements: any[]) => ({
+                _type: 'arrayUnion',
+                elements
+            }),
+            arrayRemove: (...elements: any[]) => ({
+                _type: 'arrayRemove',
+                elements
+            }),
+            serverTimestamp: () => ({
+                _type: 'serverTimestamp'
+            })
+        };
+    }
 
     private static getStoragePath() {
         if (!this.storagePath) {
