@@ -1,0 +1,1 @@
+export { JinaEmbeddingsAuthDTO } from '../../dto/jina-embeddings-auth';

@@ -1,5 +1,5 @@
 volumes:
-  minio-data:
+  # minio-data:
   model-data:
 
 
@@ -29,7 +29,7 @@ services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.server
       target: combined
     restart: always
     ports:
@@ -37,11 +37,11 @@ services:
       - "4445:3001"
       - "4446:3002"
     volumes:
-      - ./backend/functions/.firebase:/usr/src/app/.firebase
+      - ./.firebase:/usr/src/app/.firebase
     env_file:
-      - ./backend/functions/.env
+      - .env
     environment:
-      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: true
+      OVERRIDE_CHROME_EXECUTABLE_PATH: "/usr/bin/google-chrome-stable"
     healthcheck:
       test: rm -rf /usr/src/app/.firebase/* || exit 0
       interval: 1h
@@ -51,17 +51,17 @@ services:
     # crawl:
     #   build:
     #     context: .
-    #     dockerfile: Dockerfile
+    #     dockerfile: Dockerfile.server
     #     target: crawler
     #   restart: always
     #   ports:
     #     - "4444:3000"
-    #   volumes:
-    #     - ./backend/functions/.firebase:/usr/src/app/.firebase
+    #  volumes:
+    #     - ./.firebase:/usr/src/app/.firebase
     #   env_file:
-    #     - ./backend/functions/.env
+    #     - .env
     #   environment:
-    #     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: true
+    #     OVERRIDE_CHROME_EXECUTABLE_PATH: "/usr/bin/google-chrome-stable"
     #   healthcheck:
     #     test: rm -rf /usr/src/app/.firebase/* || exit 0
     #     interval: 24h
@@ -72,17 +72,17 @@ services:
     # search:
     # build:
     #   context: .
-    #   dockerfile: Dockerfile
+    #   dockerfile: Dockerfile.server
     #   target: searcher
     # restart: always
     # ports:
     #   - "4445:3001"
-    # volumes:
-    #   - ./backend/functions/.firebase:/usr/src/app/.firebase
+    #  volumes:
+    #     - ./.firebase:/usr/src/app/.firebase
     # env_file:
-    #   - ./backend/functions/.env
+    #   - .env
     # environment:
-    #   PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: true
+    #   OVERRIDE_CHROME_EXECUTABLE_PATH: "/usr/bin/google-chrome-stable"
     # healthcheck:
     #   test: rm -rf /usr/src/app/.firebase/* || exit 0
     #   interval: 24h
@@ -93,17 +93,17 @@ services:
     # adaptive-crawler:
     #   build:
     #     context: .
-    #     dockerfile: Dockerfile
+    #     dockerfile: Dockerfile.server
     #     target: adaptive-crawler
     #   restart: always
     #   ports:
     #     - "4446:3002"
-    #   volumes:
-    #     - ./backend/functions/.firebase:/usr/src/app/.firebase
+    #  volumes:
+    #     - ./.firebase:/usr/src/app/.firebase
     #   env_file:
-    #     - ./backend/functions/.env
+    #     - .env
     #   environment:
-    #     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: true
+    #     OVERRIDE_CHROME_EXECUTABLE_PATH: "/usr/bin/google-chrome-stable"
     #   healthcheck:
     #     test: rm -rf /usr/src/app/.firebase/* || exit 0
     #     interval: 24h

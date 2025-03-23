@@ -1,0 +1,68 @@
+# syntax=docker/dockerfile:1
+FROM lwthiker/curl-impersonate:0.6-chrome-slim-bullseye
+
+FROM node:22 AS builder
+
+WORKDIR /temp/dev
+
+# RUN mkdir -p ./licensed
+# RUN curl -o ./licensed/GeoLite2-City.mmdb https://git.io/GeoLite2-City.mmdb
+# RUN curl -o ./licensed/SourceHanSansSC-Regular.otf https://raw.githubusercontent.com/adobe-fonts/source-han-sans/refs/heads/release/OTF/SimplifiedChinese/SourceHanSansSC-Regular.otf
+COPY licensed ./licensed
+
+# COPY . .
+# RUN npm ci
+# RUN npm run build
+COPY build ./build
+
+WORKDIR /temp/prod
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+FROM node:22 as base
+
+# Install Chrome and required fonts
+RUN apt-get update \
+    && apt-get install -y wget gnupg \
+    && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list' \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf libxss1 zstd \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=0 /usr/local/lib/libcurl-impersonate.so /usr/local/lib/libcurl-impersonate.so
+
+# RUN groupadd -r jina
+# RUN useradd -g jina  -G audio,video -m jina
+# USER jina
+
+WORKDIR /usr/src/app
+
+COPY --from=builder /temp/prod/node_modules ./node_modules
+COPY --from=builder /temp/dev/build ./build
+COPY --from=builder /temp/dev/licensed ./licensed
+COPY public ./public
+
+RUN rm -rf ~/.config/chromium && mkdir -p ~/.config/chromium
+
+ENV LD_PRELOAD=/usr/local/lib/libcurl-impersonate.so CURL_IMPERSONATE=chrome116 CURL_IMPERSONATE_HEADERS=no
+
+# ENTRYPOINT ["node"]
+
+# FROM base AS crawler
+
+# CMD ["./build/_api/crawler.js"]
+
+# FROM base AS searcher
+
+# CMD ["./build/_api/searcher.js"]
+
+# FROM base AS adaptive-crawler
+
+# CMD ["./build/_api/adaptive-crawler.js"]
+
+FROM base AS combined
+
+CMD ["-e", "require('./build/_api/crawler.js'); require('./build/_api/searcher.js'); require('./build/_api/adaptive-crawler.js')"]
