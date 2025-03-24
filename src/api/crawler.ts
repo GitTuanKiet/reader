@@ -35,7 +35,8 @@ import { AsyncLocalContext } from '../services/async-context';
 import { Context, Ctx, Method, Param, RPCReflect } from '../services/registry';
 import {
     BudgetExceededError, InsufficientBalanceError,
-    SecurityCompromiseError, ServiceBadApproachError, ServiceBadAttemptError
+    SecurityCompromiseError, ServiceBadApproachError, ServiceBadAttemptError,
+    ServiceNodeResourceDrainError
 } from '../services/errors';
 
 import { countGPTToken as estimateToken } from '../shared/utils/openai';
@@ -45,6 +46,7 @@ import { JinaEmbeddingsAuthDTO } from '../dto/jina-embeddings-auth';
 import { RobotsTxtService } from '../services/robots-text';
 import { TempFileManager } from '../services/temp-file';
 import { MiscService } from '../services/misc';
+import { HTTPServiceError } from 'civkit';
 
 export interface ExtraScrappingOptions extends ScrappingOptions {
     withIframe?: boolean | 'quoted';
@@ -336,7 +338,7 @@ export class CrawlerHost extends RPCHost {
                     }
 
                     const formatted = await this.formatSnapshot(crawlerOptions, scrapped, targetUrl, this.urlValidMs, crawlOpts);
-                    chargeAmount = this.assignChargeAmount(formatted, crawlOpts);
+                    chargeAmount = this.assignChargeAmount(formatted, crawlerOptions);
                     if (crawlerOptions.tokenBudget && chargeAmount > crawlerOptions.tokenBudget) {
                         throw new BudgetExceededError(`Token budget (${crawlerOptions.tokenBudget}) exceeded, intended charge amount ${chargeAmount}.`);
                     }
@@ -377,7 +379,7 @@ export class CrawlerHost extends RPCHost {
                     }
 
                     const formatted = await this.formatSnapshot(crawlerOptions, scrapped, targetUrl, this.urlValidMs, crawlOpts);
-                    chargeAmount = this.assignChargeAmount(formatted, crawlOpts);
+                    chargeAmount = this.assignChargeAmount(formatted, crawlerOptions);
 
                     if (crawlerOptions.tokenBudget && chargeAmount > crawlerOptions.tokenBudget) {
                         throw new BudgetExceededError(`Token budget (${crawlerOptions.tokenBudget}) exceeded, intended charge amount ${chargeAmount}.`);
@@ -403,7 +405,7 @@ export class CrawlerHost extends RPCHost {
             }
 
             const formatted = await this.formatSnapshot(crawlerOptions, lastScrapped, targetUrl, this.urlValidMs, crawlOpts);
-            chargeAmount = this.assignChargeAmount(formatted, crawlOpts);
+            chargeAmount = this.assignChargeAmount(formatted, crawlerOptions);
             if (crawlerOptions.tokenBudget && chargeAmount > crawlerOptions.tokenBudget) {
                 throw new BudgetExceededError(`Token budget (${crawlerOptions.tokenBudget}) exceeded, intended charge amount ${chargeAmount}.`);
             }
@@ -432,7 +434,7 @@ export class CrawlerHost extends RPCHost {
                 }
 
                 const formatted = await this.formatSnapshot(crawlerOptions, scrapped, targetUrl, this.urlValidMs, crawlOpts);
-                chargeAmount = this.assignChargeAmount(formatted, crawlOpts);
+                chargeAmount = this.assignChargeAmount(formatted, crawlerOptions);
                 if (crawlerOptions.tokenBudget && chargeAmount > crawlerOptions.tokenBudget) {
                     throw new BudgetExceededError(`Token budget (${crawlerOptions.tokenBudget}) exceeded, intended charge amount ${chargeAmount}.`);
                 }
@@ -464,7 +466,7 @@ export class CrawlerHost extends RPCHost {
         }
 
         const formatted = await this.formatSnapshot(crawlerOptions, lastScrapped, targetUrl, this.urlValidMs, crawlOpts);
-        chargeAmount = this.assignChargeAmount(formatted, crawlOpts);
+        chargeAmount = this.assignChargeAmount(formatted, crawlerOptions);
         if (crawlerOptions.tokenBudget && chargeAmount > crawlerOptions.tokenBudget) {
             throw new BudgetExceededError(`Token budget (${crawlerOptions.tokenBudget}) exceeded, intended charge amount ${chargeAmount}.`);
         }
@@ -672,7 +674,10 @@ export class CrawlerHost extends RPCHost {
             const finalAutoSnapshot = await this.getFinalSnapshot(urlToCrawl, {
                 ...crawlOpts,
                 engine: crawlOpts?.engine || ENGINE_TYPE.AUTO,
-            }, crawlerOpts);
+            }, CrawlerOptions.from({
+                ...crawlerOpts,
+                respondWith: 'html',
+            }));
 
             if (!finalAutoSnapshot?.html) {
                 throw new AssertionFailureError(`Unexpected non HTML content for ReaderLM: ${urlToCrawl}`);
@@ -685,7 +690,14 @@ export class CrawlerHost extends RPCHost {
                 return;
             }
 
-            yield* this.lmControl.readerLMMarkdownFromSnapshot(finalAutoSnapshot);
+            try {
+                yield* this.lmControl.readerLMMarkdownFromSnapshot(finalAutoSnapshot);
+            } catch (err) {
+                if (err instanceof HTTPServiceError && err.status === 429) {
+                    throw new ServiceNodeResourceDrainError(`Reader LM is at capacity, please try again later.`);
+                }
+                throw err;
+            }
 
             return;
         }
@@ -881,7 +893,7 @@ export class CrawlerHost extends RPCHost {
         }
     }
 
-    assignChargeAmount(formatted: FormattedPage, scrappingOptions?: ExtraScrappingOptions) {
+    assignChargeAmount(formatted: FormattedPage, crawlerOptions?: CrawlerOptions) {
         if (!formatted) {
             return 0;
         }
@@ -889,7 +901,7 @@ export class CrawlerHost extends RPCHost {
         let amount = 0;
         if (formatted.content) {
             const x1 = estimateToken(formatted.content);
-            if (scrappingOptions?.engine?.toLowerCase().includes('lm')) {
+            if (crawlerOptions?.respondWith?.toLowerCase().includes('lm')) {
                 amount += x1 * 2;
             }
             amount += x1;
