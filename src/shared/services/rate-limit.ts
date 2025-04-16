@@ -62,6 +62,33 @@ export class RateLimitControl extends AsyncService {
         console.log(`Simple RPC UID based limit: ${uid}`);
         return new ApiRoll();
     }
+
+    record(r: Record<string, any>) {
+
+        return {
+            save: async () => {
+                // Mock implementation
+                console.log(`Saving record: ${JSON.stringify(r)}`);
+            }
+        };
+    }
+}
+
+export class RateLimitTriggeredError extends Error {
+    retryAfterDate?: Date;
+    retryAfter?: number;
+
+    constructor(message: string) {
+        super(message);
+        this.name = 'RateLimitTriggeredError';
+    }
+
+    static from(input: any): RateLimitTriggeredError {
+        const error = new RateLimitTriggeredError(input.message);
+        error.retryAfterDate = input.retryAfterDate;
+        error.retryAfter = input.retryAfter;
+        return error;
+    }
 }
 
 export class ApiRoll {

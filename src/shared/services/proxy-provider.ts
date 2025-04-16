@@ -12,7 +12,7 @@ interface ProxyConfig {
 }
 
 @singleton()
-export class ProxyProvider {
+export class ProxyProviderService {
     private proxyConfigs: Map<string, ProxyConfig[]> = new Map();
     private logger;
 
@@ -139,6 +139,44 @@ export class ProxyProvider {
         }
     }
 
+    async* iterAlloc(type?: string): AsyncGenerator<URL> {
+        // If no type is specified, use default
+        type = type || 'default';
+        try {
+            // Get proxies of the specified type
+            let proxies = this.proxyConfigs.get(type);
+            // If no proxies of the specified type, fall back to default
+            if (!proxies || proxies.length === 0) {
+                this.logger.warn(`No proxies of type ${type} available, falling back to default`);
+                proxies = this.proxyConfigs.get('default');
+                // If still no proxies, throw error
+                if (!proxies || proxies.length === 0) {
+                    throw new Error(`No proxies available for type ${type} and no default fallback`);
+                }
+            }
+            // Sort by last used time to implement rotation
+            proxies = _.sortBy(proxies, proxy => {
+                const proxyKey = `${proxy.type}:${proxy.url.toString()}`;
+                return this.lastUsedTimestamps.get(proxyKey) || 0;
+            });
+            // Get the least recently used proxy
+            for (const proxy of proxies) {
+                const proxyKey = `${proxy.type}:${proxy.url.toString()}`;
+                // Update the last used timestamp
+                this.lastUsedTimestamps.set(proxyKey, Date.now());
+                this.logger.debug(`Allocated proxy of type ${type}`, {
+                    proxyUrl: proxy.url.toString(),
+                    proxyType: proxy.type,
+                    proxyRegion: proxy.region
+                });
+                yield proxy.url;
+            }
+        } catch (err: any) {
+            this.logger.error(`Failed to allocate proxy of type ${type}`, { err: marshalErrorLike(err) });
+            throw err;
+        }
+    }
+
     /**
      * Remove a proxy from the pool (e.g., if it's not working)
      *
@@ -152,5 +190,10 @@ export class ProxyProvider {
                 this.logger.info(`Removed proxy ${url.toString()} of type ${type}`);
             }
         });
+    }
+
+    public supports(s?: string): boolean {
+
+        return true;
     }
 }

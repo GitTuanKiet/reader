@@ -2,9 +2,8 @@ import { AsyncService, AutoCastable, DownstreamServiceFailureError, Prop, RPC_CA
 import { singleton } from 'tsyringe';
 import { GlobalLogger } from './logger';
 import { SecretExposer } from '../shared/services/secrets';
-import { GEOIP_SUPPORTED_LANGUAGES, GeoIPService } from './geoip';
 import { AsyncLocalContext } from './async-context';
-import { SerperBingHTTP, SerperGoogleHTTP, SerperImageSearchResponse, SerperNewsSearchResponse, SerperSearchQueryParams, SerperWebSearchResponse, WORLD_COUNTRIES } from '../shared/3rd-party/serper-search';
+import { SerperBingHTTP, SerperGoogleHTTP, SerperImageSearchResponse, SerperNewsSearchResponse, SerperSearchQueryParams, SerperWebSearchResponse } from '../shared/3rd-party/serper-search';
 import { BlackHoleDetector } from './blackhole-detector';
 import { Context } from './registry';
 import { ServiceBadAttemptError } from '../shared';
@@ -20,7 +19,6 @@ export class SerperSearchService extends AsyncService {
     constructor(
         protected globalLogger: GlobalLogger,
         protected secretExposer: SecretExposer,
-        protected geoipControl: GeoIPService,
         protected threadLocal: AsyncLocalContext,
         protected blackHoleDetector: BlackHoleDetector,
     ) {
@@ -49,30 +47,6 @@ export class SerperSearchService extends AsyncService {
     doSearch(variant: 'images', query: SerperSearchQueryParams): Promise<SerperImageSearchResponse>;
     doSearch(variant: 'news', query: SerperSearchQueryParams): Promise<SerperNewsSearchResponse>;
     async doSearch(variant: 'web' | 'images' | 'news', query: SerperSearchQueryParams) {
-        const ip = this.threadLocal.get('ip');
-        if (ip) {
-            const geoip = await this.geoipControl.lookupCity(ip, GEOIP_SUPPORTED_LANGUAGES.EN);
-            const locationChunks = [];
-            if (geoip?.city) {
-                locationChunks.push(geoip.city);
-            }
-            if (geoip?.subdivisions?.length) {
-                for (const x of geoip.subdivisions) {
-                    locationChunks.push(x.name);
-                }
-            }
-            if (geoip?.country) {
-                const code = geoip.country.code?.toLowerCase();
-                if (code && code.toUpperCase() in WORLD_COUNTRIES) {
-                    query.gl ??= code;
-                }
-                locationChunks.push(geoip.country.name);
-            }
-            if (locationChunks.length) {
-                query.location ??= locationChunks.join(', ');
-            }
-        }
-
         const clientIt = this.iterClient();
         let client = clientIt.next().value;
         if (!client) {
@@ -82,6 +56,7 @@ export class SerperSearchService extends AsyncService {
         let maxTries = 3;
 
         while (maxTries--) {
+            const t0 = Date.now();
             try {
                 this.logger.debug(`Doing external search`, query);
                 let r;
@@ -127,11 +102,14 @@ export class SerperSearchService extends AsyncService {
                         break;
                     }
                 }
+                const dt = Date.now() - t0;
                 this.blackHoleDetector.itWorked();
+                this.logger.debug(`External search took ${dt}ms`, { searchDt: dt, variant });
 
                 return r.parsed;
             } catch (err: any) {
-                this.logger.error(`${variant} search failed: ${err?.message}`, { err: marshalErrorLike(err) });
+                const dt = Date.now() - t0;
+                this.logger.error(`${variant} search failed: ${err?.message}`, { searchDt: dt, err: marshalErrorLike(err) });
                 if (err?.status === 429) {
                     await delay(500 + 1000 * Math.random());
                     continue;

@@ -110,6 +110,35 @@ async function testSearcher(
 ) {
     console.log(`Testing Searcher with query: ${query}`);
 
+    const searchParams = {
+        count: maxResults,
+        type: options.type || 'web',
+        provider: options.provider || 'google',
+        num: options.num,
+        gl: options.gl,
+        hl: options.hl,
+        location: options.location,
+        page: options.page,
+        fallback: options.fallback !== undefined ? options.fallback : true,
+        q: query,
+        ...options
+    };
+
+    const useQueryString = options.useQueryString || true;
+
+    let url = `${SEARCHER_URL}/${encodeURIComponent(query)}`;
+
+    if (useQueryString) {
+        const queryParams = new URLSearchParams();
+        Object.entries(searchParams).forEach(([key, value]) => {
+            if (value !== undefined) {
+                queryParams.append(key, String(value));
+            }
+        });
+        url = `${url}?${queryParams.toString()}`;
+        console.log(`Using query string URL: ${url}`);
+    }
+
     const requestOptions = {
         method: 'POST',
         headers: {
@@ -117,14 +146,11 @@ async function testSearcher(
             'Content-Type': 'application/json',
             ...(AUTH_TOKEN && { 'Authorization': `Bearer ${AUTH_TOKEN}` })
         },
-        body: JSON.stringify({
-            ...options,
-            q: query
-        })
+        body: useQueryString ? undefined : JSON.stringify(searchParams)
     };
 
     try {
-        const response = await fetch(`${SEARCHER_URL}/${encodeURIComponent(query)}`, requestOptions);
+        const response = await fetch(url, requestOptions);
         const data = await response.text();
         console.log('Searcher Response:', JSON.stringify(data, null, 2));
         return JSON.parse(data);

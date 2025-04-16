@@ -6,7 +6,7 @@ import { marshalErrorLike } from 'civkit/lang';
 import { objHashMd5B64Of } from 'civkit/hash';
 import _ from 'lodash';
 
-import { RateLimitControl, RateLimitDesc } from '../shared/services/rate-limit';
+import { RateLimitControl, RateLimitDesc, RateLimitTriggeredError } from '../shared/services/rate-limit';
 
 import { CrawlerHost, ExtraScrappingOptions } from './crawler';
 import { SerperSearchResult } from '../db/searched';
@@ -20,15 +20,31 @@ import { Context, Ctx, Method, Param, RPCReflect } from '../services/registry';
 import { OutputServerEventStream } from '../lib/transform-server-event-stream';
 import { JinaEmbeddingsAuthDTO } from '../dto/jina-embeddings-auth';
 import { InsufficientBalanceError } from '../services/errors';
-import { SerperImageSearchResponse, SerperNewsSearchResponse, SerperSearchQueryParams, SerperSearchResponse, SerperWebSearchResponse, WORLD_COUNTRIES, WORLD_LANGUAGES } from '../shared/3rd-party/serper-search';
+import {
+    SerperImageSearchResponse,
+    SerperNewsSearchResponse,
+    SerperSearchQueryParams,
+    SerperSearchResponse,
+    SerperWebSearchResponse,
+    WORLD_COUNTRIES,
+    WORLD_LANGUAGES
+} from '../shared/3rd-party/serper-search';
 import { toAsyncGenerator } from '../utils/misc';
+import type { JinaEmbeddingsTokenAccount } from '../shared/db/jina-embeddings-token-account';
+import { LRUCache } from 'lru-cache';
+import { API_CALL_STATUS } from '../shared/db/api-roll';
 
-const WORLD_COUNTRY_CODES = Object.keys(WORLD_COUNTRIES);
+const WORLD_COUNTRY_CODES = Object.keys(WORLD_COUNTRIES).map((x) => x.toLowerCase());
 
 interface FormattedPage extends RealFormattedPage {
     favicon?: string;
     date?: string;
 }
+
+type RateLimitCache = {
+    blockedUntil?: Date;
+    user?: JinaEmbeddingsTokenAccount;
+};
 
 @singleton()
 export class SearcherHost extends RPCHost {
@@ -41,6 +57,13 @@ export class SearcherHost extends RPCHost {
     reasonableDelayMs = 15_000;
 
     targetResultCount = 5;
+
+    highFreqKeyCache = new LRUCache<string, RateLimitCache>({
+        max: 256,
+        ttl: 60 * 60 * 1000,
+        updateAgeOnGet: false,
+        updateAgeOnHas: false,
+    });
 
     constructor(
         protected globalLogger: GlobalLogger,
@@ -88,22 +111,31 @@ export class SearcherHost extends RPCHost {
         searchExplicitOperators: GoogleSearchExplicitOperatorsDto,
         @Param('count', { validate: (v: number) => v >= 0 && v <= 20 })
         count: number,
-        @Param('variant', { type: new Set(['web', 'images', 'news']), default: 'web' })
+        @Param('type', { type: new Set(['web', 'images', 'news']), default: 'web' })
         variant: 'web' | 'images' | 'news',
         @Param('provider', { type: new Set(['google', 'bing']), default: 'google' })
         searchEngine: 'google' | 'bing',
         @Param('num', { validate: (v: number) => v >= 0 && v <= 20 })
         num?: number,
-        @Param('gl', { validate: (v: string) => WORLD_COUNTRY_CODES.includes(v) }) gl?: string,
+        @Param('gl', { validate: (v: string) => WORLD_COUNTRY_CODES.includes(v?.toLowerCase()) }) gl?: string,
         @Param('hl', { validate: (v: string) => WORLD_LANGUAGES.some(l => l.code === v) }) hl?: string,
         @Param('location') location?: string,
         @Param('page') page?: number,
+        @Param('fallback', { type: Boolean, default: true }) fallback?: boolean,
         @Param('q') q?: string,
     ) {
         // We want to make our search API follow SERP schema, so we need to expose 'num' parameter.
         // Since we used 'count' as 'num' previously, we need to keep 'count' for old users.
         // Here we combine 'count' and 'num' to 'count' for the rest of the function.
         count = (num !== undefined ? num : count) ?? 10;
+
+        const authToken = auth.bearerToken;
+        let highFreqKey: RateLimitCache | undefined;
+        if (authToken && this.highFreqKeyCache.has(authToken)) {
+            highFreqKey = this.highFreqKeyCache.get(authToken)!;
+            auth.user = highFreqKey.user;
+            auth.uid = highFreqKey.user?.user_id;
+        }
 
         const uid = await auth.solveUID();
         // Return content by default
@@ -134,6 +166,17 @@ export class SearcherHost extends RPCHost {
             throw new InsufficientBalanceError(`Account balance not enough to run this query, please recharge.`);
         }
 
+        if (highFreqKey?.blockedUntil) {
+            const now = new Date();
+            const blockedTimeRemaining = (highFreqKey.blockedUntil.valueOf() - now.valueOf());
+            if (blockedTimeRemaining > 0) {
+                throw RateLimitTriggeredError.from({
+                    message: `Per UID rate limit exceeded (async)`,
+                    retryAfter: Math.ceil(blockedTimeRemaining / 1000),
+                });
+            }
+        }
+
         const rateLimitPolicy = auth.getRateLimits(rpcReflect.name.toUpperCase()) || [
             parseInt(user.metadata?.speed_level) >= 2 ?
                 RateLimitDesc.from({
@@ -146,17 +189,88 @@ export class SearcherHost extends RPCHost {
                 })
         ];
 
-        const apiRoll = await this.rateLimitControl.simpleRPCUidBasedLimit(
+        const apiRollPromise = this.rateLimitControl.simpleRPCUidBasedLimit(
             rpcReflect, uid!, [rpcReflect.name.toUpperCase()],
             ...rateLimitPolicy
         );
 
-        rpcReflect.finally(() => {
+        if (!highFreqKey) {
+            // Normal path
+            await apiRollPromise;
+
+            if (rateLimitPolicy.some(
+                (x) => {
+                    const rpm = x.occurrence / (x.periodSeconds / 60);
+                    if (rpm >= 400) {
+                        return true;
+                    }
+
+                    return false;
+                })
+            ) {
+                this.highFreqKeyCache.set(auth.bearerToken!, {
+                    user,
+                });
+            }
+
+        } else {
+            // High freq key path
+            apiRollPromise.then(
+                // Rate limit not triggered, make sure not blocking.
+                () => {
+                    delete highFreqKey.blockedUntil;
+                },
+                // Rate limit triggered
+                (err) => {
+                    if (!(err instanceof RateLimitTriggeredError)) {
+                        return;
+                    }
+                    const now = Date.now();
+                    let tgtDate;
+                    if (err.retryAfterDate) {
+                        tgtDate = err.retryAfterDate;
+                    } else if (err.retryAfter) {
+                        tgtDate = new Date(now + err.retryAfter * 1000);
+                    }
+
+                    if (tgtDate) {
+                        const dt = tgtDate.valueOf() - now;
+                        highFreqKey.blockedUntil = tgtDate;
+                        setTimeout(() => {
+                            if (highFreqKey.blockedUntil === tgtDate) {
+                                delete highFreqKey.blockedUntil;
+                            }
+                        }, dt).unref();
+                    }
+                }
+            ).finally(async () => {
+                // Always asynchronously update user(wallet);
+                const user = await auth.getBrief().catch(() => undefined);
+                if (user) {
+                    highFreqKey.user = user;
+                }
+            });
+        }
+
+        rpcReflect.finally(async () => {
             if (chargeAmount) {
                 auth.reportUsage(chargeAmount, `reader-${rpcReflect.name}`).catch((err) => {
                     this.logger.warn(`Unable to report usage for ${uid}`, { err: marshalErrorLike(err) });
                 });
-                apiRoll.chargeAmount = chargeAmount;
+                try {
+                    const apiRoll = await apiRollPromise;
+                    apiRoll.chargeAmount = chargeAmount;
+
+                } catch (err) {
+                    await this.rateLimitControl.record({
+                        uid,
+                        tags: [rpcReflect.name.toUpperCase()],
+                        status: API_CALL_STATUS.SUCCESS,
+                        chargeAmount,
+                    }).save().catch((err) => {
+                        this.logger.warn(`Failed to save rate limit record`, { err: marshalErrorLike(err) });
+                    });
+                }
             }
         });
 
@@ -170,16 +284,19 @@ export class SearcherHost extends RPCHost {
             fetchNum = count > 10 ? 30 : 20;
         }
 
+        let fallbackQuery: string | undefined;
         let chargeAmountScaler = 1;
         if (searchEngine === 'bing') {
             this.threadLocal.set('bing-preferred', true);
-            chargeAmountScaler = 2;
-        }
-        if (variant !== 'web') {
             chargeAmountScaler = 3;
         }
 
-        const r = await this.cachedSearch({
+        if (variant !== 'web') {
+            chargeAmountScaler = 5;
+        }
+
+        // Search with fallback logic if enabled
+        const searchParams = {
             variant,
             provider: searchEngine,
             q: searchQuery,
@@ -188,24 +305,14 @@ export class SearcherHost extends RPCHost {
             hl,
             location,
             page,
-        }, crawlerOptions.noCache);
+        };
 
-        let results;
-        switch (variant) {
-            case 'images': {
-                results = (r as SerperImageSearchResponse).images;
-                break;
-            }
-            case 'news': {
-                results = (r as SerperNewsSearchResponse).news;
-                break;
-            }
-            case 'web':
-            default: {
-                results = (r as SerperWebSearchResponse).organic;
-                break;
-            }
-        }
+        const { results, query: successQuery, tryTimes } = await this.searchWithFallback(
+            searchParams, fallback, crawlerOptions.noCache
+        );
+        chargeAmountScaler *= tryTimes;
+
+        fallbackQuery = successQuery !== searchQuery ? successQuery : undefined;
 
         if (!results.length) {
             throw new AssertionFailureError(`No search results available for query ${searchQuery}`);
@@ -220,7 +327,11 @@ export class SearcherHost extends RPCHost {
         const targetResultCount = crawlWithoutContent ? count : count + 2;
         const trimmedResults = results.filter((x) => Boolean(x.link)).slice(0, targetResultCount).map((x) => this.mapToFinalResults(x));
         trimmedResults.toString = function () {
-            return this.map((x, i) => x ? Reflect.apply(x.toString, x, [i]) : '').join('\n\n').trimEnd() + '\n';
+            let r = this.map((x, i) => x ? Reflect.apply(x.toString, x, [i]) : '').join('\n\n').trimEnd() + '\n';
+            if (fallbackQuery) {
+                r = `Fallback query: ${fallbackQuery}\n\n${r}`;
+            }
+            return r;
         };
         if (!crawlerOptions.respondWith.includes('no-content') &&
             ['html', 'text', 'shot', 'markdown', 'content'].some((x) => crawlerOptions.respondWith.includes(x))
@@ -257,8 +368,16 @@ export class SearcherHost extends RPCHost {
                         break;
                     }
 
-                    chargeAmount = this.assignChargeAmount(scrapped, count, chargeAmountScaler);
+                    chargeAmount = this.assignChargeAmount(scrapped, count, chargeAmountScaler, fallbackQuery);
                     lastScrapped = scrapped;
+
+                    if (fallbackQuery) {
+                        sseStream.write({
+                            event: 'meta',
+                            data: { fallback: fallbackQuery },
+                        });
+                    }
+
                     sseStream.write({
                         event: 'data',
                         data: scrapped,
@@ -291,7 +410,8 @@ export class SearcherHost extends RPCHost {
                         return;
                     }
                     await assigningOfGeneralMixins;
-                    chargeAmount = this.assignChargeAmount(lastScrapped, count, chargeAmountScaler);
+                    chargeAmount = this.assignChargeAmount(lastScrapped, count, chargeAmountScaler, fallbackQuery);
+
                     rpcReflect.return(lastScrapped);
                     earlyReturn = true;
                 }, ((crawlerOptions.timeout || 0) * 1000) || this.reasonableDelayMs);
@@ -312,7 +432,7 @@ export class SearcherHost extends RPCHost {
                     clearTimeout(earlyReturnTimer);
                 }
                 await assigningOfGeneralMixins;
-                chargeAmount = this.assignChargeAmount(scrapped, count, chargeAmountScaler);
+                chargeAmount = this.assignChargeAmount(scrapped, count, chargeAmountScaler, fallbackQuery);
 
                 return scrapped;
             }
@@ -327,7 +447,7 @@ export class SearcherHost extends RPCHost {
 
             if (!earlyReturn) {
                 await assigningOfGeneralMixins;
-                chargeAmount = this.assignChargeAmount(lastScrapped, count, chargeAmountScaler);
+                chargeAmount = this.assignChargeAmount(lastScrapped, count, chargeAmountScaler, fallbackQuery);
             }
 
             return lastScrapped;
@@ -343,7 +463,8 @@ export class SearcherHost extends RPCHost {
                     return;
                 }
                 await assigningOfGeneralMixins;
-                chargeAmount = this.assignChargeAmount(lastScrapped, count, chargeAmountScaler);
+                chargeAmount = this.assignChargeAmount(lastScrapped, count, chargeAmountScaler, fallbackQuery);
+
                 rpcReflect.return(assignTransferProtocolMeta(`${lastScrapped}`, { contentType: 'text/plain', envelope: null }));
                 earlyReturn = true;
             }, ((crawlerOptions.timeout || 0) * 1000) || this.reasonableDelayMs);
@@ -366,7 +487,7 @@ export class SearcherHost extends RPCHost {
                 clearTimeout(earlyReturnTimer);
             }
             await assigningOfGeneralMixins;
-            chargeAmount = this.assignChargeAmount(scrapped, count, chargeAmountScaler);
+            chargeAmount = this.assignChargeAmount(scrapped, count, chargeAmountScaler, fallbackQuery);
 
             return assignTransferProtocolMeta(`${scrapped}`, { contentType: 'text/plain', envelope: null });
         }
@@ -381,10 +502,89 @@ export class SearcherHost extends RPCHost {
 
         if (!earlyReturn) {
             await assigningOfGeneralMixins;
-            chargeAmount = this.assignChargeAmount(lastScrapped, count, chargeAmountScaler);
+            chargeAmount = this.assignChargeAmount(lastScrapped, count, chargeAmountScaler, fallbackQuery);
         }
 
         return assignTransferProtocolMeta(`${lastScrapped}`, { contentType: 'text/plain', envelope: null });
+    }
+
+    /**
+     * Search with fallback to progressively shorter queries if no results found
+     * @param params Search parameters
+     * @param useFallback Whether to use the fallback mechanism
+     * @param noCache Whether to bypass cache
+     * @returns Search response and the successful query
+     */
+    async searchWithFallback(
+        params: SerperSearchQueryParams & { variant: 'web' | 'images' | 'news'; provider?: string; },
+        useFallback: boolean = false,
+        noCache: boolean = false
+    ) {
+        // Try original query first
+        const originalQuery = params.q;
+        const containsRTL = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0590-\u05FF\uFB1D-\uFB4F\u0700-\u074F\u0780-\u07BF\u07C0-\u07FF]/.test(originalQuery);
+
+        // Extract results based on variant
+        let tryTimes = 1;
+        const results = await this.doSearch(params, noCache);
+        if (results.length || !useFallback) {
+            return { results, query: params.q, tryTimes };
+        }
+
+        let queryTerms = originalQuery.split(/\s+/);
+        const lastResort = containsRTL ? queryTerms.slice(queryTerms.length - 2) : queryTerms.slice(0, 2);
+
+        this.logger.info(`No results for "${originalQuery}", trying fallback queries`);
+
+        let terms: string[] = [];
+        // fallback n times
+        const n = 4;
+
+        while (tryTimes < n) {
+            const delta = Math.ceil(queryTerms.length / n) * tryTimes;
+            terms = containsRTL ? queryTerms.slice(delta) : queryTerms.slice(0, queryTerms.length - delta);
+            const query = terms.join(' ');
+            if (!query) {
+                break;
+            }
+            tryTimes += 1;
+            this.logger.info(`Retrying search with fallback query: "${query}"`);
+            const fallbackParams = { ...params, q: query };
+            const fallbackResults = await this.doSearch(fallbackParams, noCache);
+            if (fallbackResults.length > 0) {
+                return { results: fallbackResults, query: fallbackParams.q, tryTimes };
+            }
+        }
+
+        if (terms.length > lastResort.length) {
+            const query = lastResort.join(' ');
+            this.logger.info(`Retrying search with fallback query: "${query}"`);
+            const fallbackParams = { ...params, q: query };
+            tryTimes += 1;
+            const fallbackResults = await this.doSearch(fallbackParams, noCache);
+
+            if (fallbackResults.length > 0) {
+                return { results: fallbackResults, query, tryTimes };
+            }
+        }
+
+        return { results, query: originalQuery, tryTimes };
+    }
+
+    async doSearch(
+        params: SerperSearchQueryParams & { variant: 'web' | 'images' | 'news'; provider?: string; },
+        noCache: boolean = false,
+    ) {
+        const response = await this.cachedSearch(params, noCache);
+
+        let results = [];
+        switch (params.variant) {
+            case 'images': results = (response as SerperImageSearchResponse).images; break;
+            case 'news': results = (response as SerperNewsSearchResponse).news; break;
+            case 'web': default: results = (response as SerperWebSearchResponse).organic; break;
+        }
+
+        return results;
     }
 
     async *fetchSearchResults(
@@ -448,7 +648,7 @@ export class SearcherHost extends RPCHost {
         return resultArray;
     }
 
-    assignChargeAmount(formatted: FormattedPage[], num: number, scaler: number) {
+    assignChargeAmount(formatted: FormattedPage[], num: number, scaler: number, fallbackQuery?: string) {
         let contentCharge = 0;
         for (const x of formatted) {
             const itemAmount = this.crawler.assignChargeAmount(x) || 0;
@@ -470,8 +670,12 @@ export class SearcherHost extends RPCHost {
             }
         }
 
+        const metadata: Record<string, any> = { usage: { tokens: final } };
+        if (fallbackQuery) {
+            metadata.fallback = fallbackQuery;
+        }
 
-        assignMeta(formatted, { usage: { tokens: final } });
+        assignMeta(formatted, metadata);
 
         return final;
     }

@@ -4,7 +4,6 @@ import { container, singleton } from 'tsyringe';
 import { KoaServer } from 'civkit/civ-rpc/koa';
 import http2 from 'http2';
 import http from 'http';
-import { CrawlerHost } from '../api/crawler';
 import { FsWalk, WalkOutEntity } from 'civkit/fswalk';
 import path from 'path';
 import fs from 'fs';
@@ -18,10 +17,11 @@ import { ThreadedServiceRegistry } from '../services/threaded';
 import { GlobalLogger } from '../services/logger';
 import { AsyncLocalContext } from '../services/async-context';
 import finalizer, { Finalizer } from '../services/finalizer';
+import { SerpHost } from '../api/serp';
 import koaCompress from 'koa-compress';
 
 @singleton()
-export class CrawlStandAloneServer extends KoaServer {
+export class SERPStandAloneServer extends KoaServer {
     logger = this.globalLogger.child({ service: this.constructor.name });
 
     httpAlternativeServer?: typeof this['httpServer'];
@@ -30,7 +30,7 @@ export class CrawlStandAloneServer extends KoaServer {
     constructor(
         protected globalLogger: GlobalLogger,
         protected registry: RPCRegistry,
-        protected crawlerHost: CrawlerHost,
+        protected serpHost: SerpHost,
         protected threadLocal: AsyncLocalContext,
         protected threads: ThreadedServiceRegistry,
     ) {
@@ -51,6 +51,14 @@ export class CrawlStandAloneServer extends KoaServer {
 
     override async init() {
         await this.walkForAssets();
+        await this.dependencyReady();
+
+        for (const [k, v] of this.registry.conf.entries()) {
+            if (v.tags?.includes('crawl')) {
+                this.registry.conf.delete(k);
+            }
+        }
+
         await super.init();
     }
 
@@ -120,6 +128,7 @@ export class CrawlStandAloneServer extends KoaServer {
         this.koaApp.use(this.registry.makeShimController());
     }
 
+
     // Using h2c server has an implication that multiple requests may share the same connection and x-cloud-trace-context
     // TraceId is expected to be request-bound and unique. So these two has to be distinguished.
     @runOnce()
@@ -158,7 +167,7 @@ export class CrawlStandAloneServer extends KoaServer {
     }
 
 }
-const instance = container.resolve(CrawlStandAloneServer);
+const instance = container.resolve(SERPStandAloneServer);
 
 export default instance;
 

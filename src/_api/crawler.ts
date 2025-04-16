@@ -118,9 +118,18 @@ app.all('*', async (req, res) => {
             ('toJSON' in result && typeof result.toJSON === 'function') ||
             (result[RPC_MARSHAL] && typeof result[RPC_MARSHAL] === 'function')
         ) {
-            const resultJSON = result.toJSON ? result.toJSON() : result[RPC_MARSHAL]();
+            try {
+                const resultJSON = result.toJSON ? result.toJSON() : result[RPC_MARSHAL]();
 
-            return res.send(resultJSON);
+                const safeJSON = JSON.parse(JSON.stringify(resultJSON, (key, value) => {
+                    return Number.isNaN(value) ? null : value;
+                }));
+
+                return res.send(safeJSON);
+            } catch (jsonError) {
+                console.error('Error serializing result:', jsonError);
+                return res.status(500).json({ error: 'Error processing the response data' });
+            }
         }
 
         return res

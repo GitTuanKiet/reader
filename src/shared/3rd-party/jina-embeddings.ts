@@ -41,6 +41,10 @@ export class JinaEmbeddingsDashboardHTTP {
         jinaLogger.debug('Initialized Jina Embeddings mock client');
     }
 
+    async authorization(token: string): Promise<JinaTokenValidationResponse> {
+        return this.validateToken(token);
+    }
+
     async validateToken(token: string): Promise<JinaTokenValidationResponse> {
         jinaLogger.debug('Mock: Validating Jina token - always succeeds', this.apiKey);
 

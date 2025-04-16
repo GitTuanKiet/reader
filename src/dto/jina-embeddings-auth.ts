@@ -1,8 +1,9 @@
 import _ from 'lodash';
 import {
     Also, AuthenticationFailedError, AuthenticationRequiredError,
-    DownstreamServiceFailureError, RPC_CALL_ENVIRONMENT,
+    RPC_CALL_ENVIRONMENT,
     AutoCastable,
+    DownstreamServiceError,
 } from 'civkit/civ-rpc';
 import { htmlEscape } from 'civkit/escape';
 import { marshalErrorLike } from 'civkit/lang';
@@ -17,16 +18,7 @@ import envConfig from '../shared/services/secrets';
 import { JinaEmbeddingsDashboardHTTP } from '../shared/3rd-party/jina-embeddings';
 import { JinaEmbeddingsTokenAccount } from '../shared/db/jina-embeddings-token-account';
 
-import { LRUCache } from 'lru-cache';
-
 const authDtoLogger = logger.child({ service: 'JinaAuthDTO' });
-
-const invalidTokenLRU = new LRUCache({
-    max: 256,
-    ttl: 60 * 60 * 1000,
-    updateAgeOnGet: false,
-    updateAgeOnHas: false,
-});
 
 
 const THE_VERY_SAME_JINA_EMBEDDINGS_CLIENT = new JinaEmbeddingsDashboardHTTP(envConfig.JINA_EMBEDDINGS_DASHBOARD_API_KEY);
@@ -90,25 +82,22 @@ export class JinaEmbeddingsAuthDTO extends AutoCastable {
             });
         }
 
-        if (invalidTokenLRU.get(this.bearerToken)) {
-            throw new AuthenticationFailedError({
-                message: 'Invalid API key, please get a new one from https://jina.ai'
-            });
-        }
-
+        let firestoreDegradation = false;
         let account;
         try {
             account = await JinaEmbeddingsTokenAccount.fromFirestore(this.bearerToken);
         } catch (err) {
             // FireStore would not accept any string as input and may throw if not happy with it
-            void 0;
+            firestoreDegradation = true;
+            logger.warn(`Firestore issue`, { err });
         }
 
 
-        const age = account?.lastSyncedAt ? Date.now() - account.lastSyncedAt.getTime() : Infinity;
+        const age = account?.lastSyncedAt ? Date.now() - account.lastSyncedAt.valueOf() : Infinity;
+        const jitter = Math.ceil(Math.random() * 30 * 1000);
 
         if (account && !ignoreCache) {
-            if (account && age < 180_000) {
+            if ((age < (180_000 - jitter)) && (account.wallet?.total_balance > 0)) {
                 this.user = account;
                 this.uid = this.user?.user_id;
 
@@ -116,8 +105,36 @@ export class JinaEmbeddingsAuthDTO extends AutoCastable {
             }
         }
 
+        if (firestoreDegradation) {
+            logger.debug(`Using remote UC cached user`);
+            let r;
+            try {
+                r = await this.jinaEmbeddingsDashboard.authorization(this.bearerToken);
+            } catch (err: any) {
+                if (err?.status === 401) {
+                    throw new AuthenticationFailedError({
+                        message: 'Invalid API key, please get a new one from https://jina.ai'
+                    });
+                }
+                logger.warn(`Failed load remote cached user: ${err}`, { err });
+                throw new DownstreamServiceError(`Failed to authenticate: ${err}`);
+            }
+            const brief = r?.data;
+            const draftAccount = JinaEmbeddingsTokenAccount.from({
+                ...account, ...brief, _id: this.bearerToken,
+                lastSyncedAt: new Date()
+            });
+            this.user = draftAccount;
+            this.uid = this.user?.user_id;
+
+            return draftAccount;
+        }
+
         try {
-            const r = await this.jinaEmbeddingsDashboard.validateToken(this.bearerToken);
+            // TODO: go back using validateToken after performance issue fixed
+            const r = ((account?.wallet?.total_balance || 0) > 0) ?
+                await this.jinaEmbeddingsDashboard.authorization(this.bearerToken) :
+                await this.jinaEmbeddingsDashboard.validateToken(this.bearerToken);
             const brief = r.data;
             const draftAccount = JinaEmbeddingsTokenAccount.from({
                 ...account, ...brief, _id: this.bearerToken,
@@ -133,7 +150,6 @@ export class JinaEmbeddingsAuthDTO extends AutoCastable {
             authDtoLogger.warn(`Failed to get user brief: ${err}`, { err: marshalErrorLike(err) });
 
             if (err?.status === 401) {
-                invalidTokenLRU.set(this.bearerToken, true);
                 throw new AuthenticationFailedError({
                     message: 'Invalid API key, please get a new one from https://jina.ai'
                 });
@@ -147,7 +163,7 @@ export class JinaEmbeddingsAuthDTO extends AutoCastable {
             }
 
 
-            throw new DownstreamServiceFailureError(`Failed to authenticate: ${err}`);
+            throw new DownstreamServiceError(`Failed to authenticate: ${err}`);
         }
     }
 

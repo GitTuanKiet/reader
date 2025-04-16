@@ -185,7 +185,7 @@ export class LocalAdaptiveCrawlerHost extends AdaptiveCrawlerHost {
 
             const { title, description, links } = json.data;
             const relevantUrls = await this.getRelevantUrls(token, { title, description, links });
-            this.logger.debug(`Total urls: ${Object.keys(links).length}, relevant urls: ${relevantUrls.length}`);
+            this.logger.debug(`Total urls: ${Object.keys(links || {}).length}, relevant urls: ${relevantUrls.length}`);
 
             for (const url of relevantUrls) {
                 let abortContinue = false;
@@ -237,7 +237,7 @@ export class LocalAdaptiveCrawlerHost extends AdaptiveCrawlerHost {
             '.xlsx',
         ];
 
-        const validLinks = Object.entries(links)
+        const validLinks = Object.entries(links || {})
             .map(([title, link]) => link)
             .filter(link => link.startsWith('http') && !invalidSuffix.some(suffix => link.endsWith(suffix)));
 

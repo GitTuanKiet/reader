@@ -9,6 +9,7 @@ import {
     RawString,
     ApplicationError,
     DataStreamBrokenError,
+    assignMeta,
 } from 'civkit/civ-rpc';
 import { marshalErrorLike } from 'civkit/lang';
 import { Defer } from 'civkit/defer';
@@ -40,13 +41,14 @@ import {
 } from '../services/errors';
 
 import { countGPTToken as estimateToken } from '../shared/utils/openai';
-import { ProxyProvider } from '../shared/services/proxy-provider';
+import { ProxyProviderService } from '../shared/services/proxy-provider';
 import { FirebaseStorageBucketControl } from '../shared/services/firebase-storage-bucket';
 import { JinaEmbeddingsAuthDTO } from '../dto/jina-embeddings-auth';
 import { RobotsTxtService } from '../services/robots-text';
 import { TempFileManager } from '../services/temp-file';
 import { MiscService } from '../services/misc';
-import { HTTPServiceError } from 'civkit';
+import { HTTPServiceError } from 'civkit/http';
+import { GeoIPService } from '../services/geoip';
 
 export interface ExtraScrappingOptions extends ScrappingOptions {
     withIframe?: boolean | 'quoted';
@@ -57,6 +59,7 @@ export interface ExtraScrappingOptions extends ScrappingOptions {
     engine?: string;
     allocProxy?: string;
     private?: boolean;
+    countryHint?: string;
 }
 
 const indexProto = {
@@ -84,7 +87,7 @@ export class CrawlerHost extends RPCHost {
         protected puppeteerControl: PuppeteerControl,
         protected curlControl: CurlControl,
         protected cfBrowserRendering: CFBrowserRendering,
-        protected proxyProvider: ProxyProvider,
+        protected proxyProvider: ProxyProviderService,
         protected lmControl: LmControl,
         protected jsdomControl: JSDomControl,
         protected snapshotFormatter: SnapshotFormatter,
@@ -93,6 +96,7 @@ export class CrawlerHost extends RPCHost {
         protected threadLocal: AsyncLocalContext,
         protected robotsTxtService: RobotsTxtService,
         protected tempFileManager: TempFileManager,
+        protected geoIpService: GeoIPService,
         protected miscService: MiscService,
     ) {
         super(...arguments);
@@ -149,8 +153,8 @@ export class CrawlerHost extends RPCHost {
     override async init() {
         await this.dependencyReady();
 
-        if (this.puppeteerControl.ua) {
-            this.curlControl.impersonateChrome(this.puppeteerControl.ua.replace(/Headless/i, ''));
+        if (this.puppeteerControl.effectiveUA) {
+            this.curlControl.impersonateChrome(this.puppeteerControl.effectiveUA);
         }
 
         this.emit('ready');
@@ -158,17 +162,10 @@ export class CrawlerHost extends RPCHost {
 
     async getIndex(auth?: JinaEmbeddingsAuthDTO) {
         const indexObject: Record<string, string | number | undefined> = Object.create(indexProto);
-        // Object.assign(indexObject, {
-        //     usage1: `${ctx.origin}/YOUR_URL`,
-        //     usage2: `${ctx.origin}/search/YOUR_SEARCH_QUERY`,
-        //     homepage: 'https://jina.ai/reader',
-        //     sourceCode: 'https://github.com/jina-ai/reader',
-        // });
         Object.assign(indexObject, {
             usage1: 'https://r.jina.ai/YOUR_URL',
             usage2: 'https://s.jina.ai/YOUR_SEARCH_QUERY',
             homepage: 'https://jina.ai/reader',
-            sourceCode: 'https://github.com/jina-ai/reader',
         });
 
         await auth?.solveUID();
@@ -257,7 +254,7 @@ export class CrawlerHost extends RPCHost {
                 throw new InsufficientBalanceError(`Account balance not enough to run this query, please recharge.`);
             }
 
-            const rateLimitPolicy = auth.getRateLimits(rpcReflect.name.toUpperCase()) || [
+            const rateLimitPolicy = auth.getRateLimits('CRAWL') || [
                 parseInt(user.metadata?.speed_level) >= 2 ?
                     RateLimitDesc.from({
                         occurrence: 2000,
@@ -270,7 +267,7 @@ export class CrawlerHost extends RPCHost {
             ];
 
             const apiRoll = await this.rateLimitControl.simpleRPCUidBasedLimit(
-                rpcReflect, uid, [rpcReflect.name.toUpperCase()],
+                rpcReflect, uid, ['CRAWL'],
                 ...rateLimitPolicy
             );
 
@@ -286,7 +283,7 @@ export class CrawlerHost extends RPCHost {
                 }
             });
         } else if (ctx.ip) {
-            const apiRoll = await this.rateLimitControl.simpleRpcIPBasedLimit(rpcReflect, ctx.ip, [rpcReflect.name.toUpperCase()],
+            const apiRoll = await this.rateLimitControl.simpleRpcIPBasedLimit(rpcReflect, ctx.ip, ['CRAWL'],
                 [
                     // 20 requests per minute
                     new Date(Date.now() - 60 * 1000), 20
@@ -510,15 +507,16 @@ export class CrawlerHost extends RPCHost {
             });
         }
 
-        const result = await this.miscService.assertNormalizedUrl(url);
-        if (this.puppeteerControl.circuitBreakerHosts.has(result.hostname.toLowerCase())) {
+        const { url: safeURL, ips } = await this.miscService.assertNormalizedUrl(url);
+        if (this.puppeteerControl.circuitBreakerHosts.has(safeURL.hostname.toLowerCase())) {
             throw new SecurityCompromiseError({
-                message: `Circular hostname: ${result.protocol}`,
+                message: `Circular hostname: ${safeURL.protocol}`,
                 path: 'url'
             });
         }
+        crawlerOptions._hintIps = ips;
 
-        return result;
+        return safeURL;
     }
 
     getUrlDigest(urlToCrawl: URL) {
@@ -755,6 +753,8 @@ export class CrawlerHost extends RPCHost {
                 throw new AssertionFailureError(`Remote server did not return a body: ${urlToCrawl}`);
             }
             const draftSnapshot = await this.snapshotFormatter.createSnapshotFromFile(urlToCrawl, sideLoaded.file, sideLoaded.contentType, sideLoaded.fileName);
+            draftSnapshot.status = sideLoaded.status;
+            draftSnapshot.statusText = sideLoaded.statusText;
             yield this.jsdomControl.narrowSnapshot(draftSnapshot, crawlOpts);
             return;
         }
@@ -822,6 +822,8 @@ export class CrawlerHost extends RPCHost {
                     }
                     return Promise.reject(err);
                 });
+                draftSnapshot.status = sideLoaded.status;
+                draftSnapshot.statusText = sideLoaded.statusText;
                 if (sideLoaded.status == 200 && !sideLoaded.contentType.startsWith('text/html')) {
                     yield draftSnapshot;
                     return;
@@ -849,6 +851,8 @@ export class CrawlerHost extends RPCHost {
                         }
                         return Promise.reject(err);
                     });
+                    proxySnapshot.status = proxyLoaded.status;
+                    proxySnapshot.statusText = proxyLoaded.statusText;
                     if (proxyLoaded.status === 200 && crawlerOpts?.browserIsNotRequired()) {
                     }
                     analyzed = await this.jsdomControl.analyzeHTMLTextLite(proxySnapshot.html);
@@ -879,7 +883,8 @@ export class CrawlerHost extends RPCHost {
                 }
             }
         } else if (crawlOpts?.allocProxy && crawlOpts.allocProxy !== 'none' && !crawlOpts.proxyUrl) {
-            crawlOpts.proxyUrl = (await this.proxyProvider.alloc(crawlOpts.allocProxy)).href;
+            const proxyUrl = await this.proxyProvider.alloc(this.figureOutBestProxyCountry(crawlOpts));
+            crawlOpts.proxyUrl = proxyUrl.href;
         }
 
         try {
@@ -931,6 +936,7 @@ export class CrawlerHost extends RPCHost {
         }
 
         Object.assign(formatted, { usage: { tokens: amount } });
+        assignMeta(formatted, { usage: { tokens: amount } });
 
         return amount;
     }
@@ -1022,6 +1028,7 @@ export class CrawlerHost extends RPCHost {
             proxyResources: (opts.proxyUrl || opts.proxy?.endsWith('+')) ? true : false,
             private: Boolean(opts.doNotTrack),
         };
+
         if (crawlOpts.targetSelector?.length) {
             if (typeof crawlOpts.targetSelector === 'string') {
                 crawlOpts.targetSelector = [crawlOpts.targetSelector];
@@ -1036,6 +1043,18 @@ export class CrawlerHost extends RPCHost {
                     }
                 }
             }
+        }
+
+        if (opts._hintIps?.length) {
+            const hints = await this.geoIpService.lookupCities(opts._hintIps);
+            const board: Record<string, number> = {};
+            for (const x of hints) {
+                if (x.country?.code) {
+                    board[x.country.code] = (board[x.country.code] || 0) + 1;
+                }
+            }
+            const hintCountry = _.maxBy(Array.from(Object.entries(board)), 1)?.[0];
+            crawlOpts.countryHint = hintCountry?.toLowerCase();
         }
 
         if (opts.locale) {
@@ -1213,6 +1232,7 @@ export class CrawlerHost extends RPCHost {
         };
     }
 
+    proxyIterMap = new WeakMap<ExtraScrappingOptions, ReturnType<ProxyProviderService['iterAlloc']>>();
     @retryWith((err) => {
         if (err instanceof ServiceBadApproachError) {
             return false;
@@ -1231,7 +1251,18 @@ export class CrawlerHost extends RPCHost {
         if (opts?.allocProxy === 'none') {
             return this.curlControl.sideLoad(url, opts);
         }
-        const proxy = await this.proxyProvider.alloc(opts?.allocProxy);
+        let proxy;
+        if (opts) {
+            let it = this.proxyIterMap.get(opts);
+            if (!it) {
+                it = this.proxyProvider.iterAlloc(this.figureOutBestProxyCountry(opts));
+                this.proxyIterMap.set(opts, it);
+            }
+            proxy = (await it.next()).value;
+        }
+
+        proxy ??= await this.proxyProvider.alloc(this.figureOutBestProxyCountry(opts));
+        this.logger.debug(`Proxy allocated`, { proxy: proxy.href });
         const r = await this.curlControl.sideLoad(url, {
             ...opts,
             proxyUrl: proxy.href,
@@ -1242,6 +1273,32 @@ export class CrawlerHost extends RPCHost {
         }
 
         return { ...r, proxy };
+    }
+
+    protected figureOutBestProxyCountry(opts?: ExtraScrappingOptions) {
+        if (!opts) {
+            return 'auto';
+        }
+
+        let draft;
+
+        if (opts.allocProxy) {
+            if (this.proxyProvider.supports(opts.allocProxy)) {
+                draft = opts.allocProxy;
+            } else if (opts.allocProxy === 'none') {
+                return 'none';
+            }
+        }
+
+        if (opts.countryHint) {
+            if (this.proxyProvider.supports(opts.countryHint)) {
+                draft ??= opts.countryHint;
+            }
+        }
+
+        draft ??= opts.allocProxy || 'auto';
+
+        return draft;
     }
 
     knownUrlThatSideLoadingWouldCrashTheBrowser(url: URL) {

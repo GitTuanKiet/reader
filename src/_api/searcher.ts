@@ -9,7 +9,7 @@ import { OutputServerEventStream } from '../shared';
 import { JinaEmbeddingsAuthDTO } from '../dto/jina-embeddings-auth';
 import { CrawlerOptions, CrawlerOptionsHeaderOnly } from '../dto/crawler-options';
 import { BraveSearchExplicitOperatorsDto } from '../services/brave-search';
-import { SearcherHost } from '../api/searcher';
+import { SearcherHost } from '../api/searcher-serper';
 import { createKoaContextMock } from './_helpers';
 
 const app = express();
@@ -41,7 +41,14 @@ app.all('*', async (req, res) => {
             },
             return: (stream: OutputServerEventStream) => {
                 console.log('Mock: Stream returned');
-            }
+            },
+            signal: {
+                aborted: false,
+                addEventListener: () => { },
+                removeEventListener: () => { },
+                dispatchEvent: () => false,
+                onabort: null
+            },
         } as unknown as RPCReflection;
 
         const ctx = createKoaContextMock(req, res);
@@ -83,15 +90,35 @@ app.all('*', async (req, res) => {
             return res.status(404).type('text/plain').send('No favicon');
         }
 
+        const count = Number(req.query.count?.toString() || req.body.count || 5);
+        const variant = (req.query.type?.toString() || req.body.type || 'web') as 'web' | 'images' | 'news';
+        const searchEngine = (req.query.provider?.toString() || req.body.provider || 'google') as 'google' | 'bing';
+        const num = req.query.num?.toString() || req.body.num ? Number(req.query.num?.toString() || req.body.num) : undefined;
+        const gl = req.query.gl?.toString() || req.body.gl as string | undefined;
+        const hl = req.query.hl?.toString() || req.body.hl as string | undefined;
+        const location = req.query.location?.toString() || req.body.location as string | undefined;
+        const page = req.query.page?.toString() || req.body.page ? Number(req.query.page?.toString() || req.body.page) : undefined;
+        const fallback = req.query.fallback !== undefined || req.body.fallback !== undefined
+            ? (req.query.fallback?.toString() === 'true' || req.body.fallback === true)
+            : true;
+        const q = req.query.q?.toString() || req.body.q || noSlashPath;
+
         const result = await searcherHost.search(
             rpcReflection,
             ctx,
             auth,
-            5,
             options,
             BraveSearchExplicitOperatorsDto.from(input),
-            noSlashPath
-
+            count,
+            variant,
+            searchEngine,
+            num,
+            gl,
+            hl,
+            location,
+            page,
+            fallback,
+            q
         ) as any;
 
         const meta = extractTransferProtocolMeta(result);

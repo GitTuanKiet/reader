@@ -61,10 +61,23 @@ export class CurlControl extends AsyncService {
     }
 
     curlImpersonateHeader(curl: Curl, headers?: object) {
+        let uaPlatform = this.platform;
+        if (this.ua.includes('Windows')) {
+            uaPlatform = 'Windows';
+        } else if (this.ua.includes('Android')) {
+            uaPlatform = 'Android';
+        } else if (this.ua.includes('iPhone') || this.ua.includes('iPad') || this.ua.includes('iPod')) {
+            uaPlatform = 'iOS';
+        } else if (this.ua.includes('CrOS')) {
+            uaPlatform = 'Chrome OS';
+        } else if (this.ua.includes('Macintosh')) {
+            uaPlatform = 'macOS';
+        }
+
         const mixinHeaders: Record<string, string> = {
-            'sch-ch-ua': `Not A(Brand";v="8", "Chromium";v="${this.chromeVersion}", "Google Chrome";v="${this.chromeVersion}"`,
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': this.platform,
+            'Sec-Ch-Ua': `Not A(Brand";v="8", "Chromium";v="${this.chromeVersion}", "Google Chrome";v="${this.chromeVersion}"`,
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': `"${uaPlatform}"`,
             'Upgrade-Insecure-Requests': '1',
             'User-Agent': this.ua,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
@@ -98,6 +111,7 @@ export class CurlControl extends AsyncService {
     urlToFile1Shot(urlToCrawl: URL, crawlOpts?: CURLScrappingOptions) {
         return new Promise<{
             statusCode: number,
+            statusText?: string,
             data?: FancyFile,
             headers: HeaderInfo[],
         }>((resolve, reject) => {
@@ -179,6 +193,7 @@ export class CurlControl extends AsyncService {
             });
             curl.setOpt(Curl.option.MAXFILESIZE, 4 * 1024 * 1024 * 1024); // 4GB
             let status = -1;
+            let statusText: string|undefined;
             let contentEncoding = '';
             curl.once('end', () => {
                 if (curlStream) {
@@ -208,6 +223,7 @@ export class CurlControl extends AsyncService {
                     }
                 }
                 const lastResHeaders = headers[headers.length - 1];
+                statusText = (lastResHeaders as HeaderInfo).result?.reason;
                 for (const [k, v] of Object.entries(lastResHeaders)) {
                     const kl = k.toLowerCase();
                     if (kl === 'content-type') {
@@ -227,6 +243,7 @@ export class CurlControl extends AsyncService {
                     }
                     resolve({
                         statusCode: status,
+                        statusText,
                         data: undefined,
                         headers: headers as HeaderInfo[],
                     });
@@ -236,6 +253,7 @@ export class CurlControl extends AsyncService {
                 if (!stream) {
                     resolve({
                         statusCode: status,
+                        statusText,
                         data: undefined,
                         headers: headers as HeaderInfo[],
                     });
@@ -289,6 +307,7 @@ export class CurlControl extends AsyncService {
                 this.tempFileManager.bindPathTo(fancyFile, fpath);
                 resolve({
                     statusCode: status,
+                    statusText,
                     data: fancyFile,
                     headers: headers as HeaderInfo[],
                 });
@@ -343,6 +362,7 @@ export class CurlControl extends AsyncService {
 
             return {
                 statusCode: r.statusCode,
+                statusText: r.statusText,
                 data: r.data,
                 headers: fakeHeaderInfos.concat(r.headers),
             };
@@ -392,6 +412,7 @@ export class CurlControl extends AsyncService {
             sideLoadOpts,
             chain: curlResult.headers,
             status: curlResult.statusCode,
+            statusText: curlResult.statusText,
             headers: lastHeaders,
             contentType,
             contentDisposition,

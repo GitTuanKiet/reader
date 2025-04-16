@@ -83,7 +83,7 @@ const SERPER_BING_NEWS_API_ENDPOINT = 'https://bing.serper.dev/news';
 
 @singleton()
 export class SerperGoogleHTTP {
-    private apiKey: string;
+    apiKey: string;
 
     constructor(apiKey: string) {
         this.apiKey = apiKey;
@@ -194,14 +194,12 @@ export class SerperGoogleHTTP {
 }
 
 @singleton()
-export class SerperBingHTTP {
-    private apiKey: string;
-
+export class SerperBingHTTP extends SerperGoogleHTTP {
     constructor(apiKey: string) {
-        this.apiKey = apiKey;
+        super(apiKey);
     }
 
-    async webSearch(query: SerperSearchQueryParams, options: { headers: Record<string, string>; } = { headers: {} }): Promise<{ parsed: SerperWebSearchResponse; }> {
+    override async webSearch(query: SerperSearchQueryParams, options: { headers: Record<string, string>; } = { headers: {} }): Promise<{ parsed: SerperWebSearchResponse; }> {
         const response = await fetch(SERPER_BING_API_ENDPOINT, {
             method: 'POST',
             headers: {
@@ -247,7 +245,7 @@ export class SerperBingHTTP {
         return { parsed };
     }
 
-    async imageSearch(query: SerperSearchQueryParams, options: { headers: Record<string, string>; } = { headers: {} }): Promise<{ parsed: SerperImageSearchResponse; }> {
+    override async imageSearch(query: SerperSearchQueryParams, options: { headers: Record<string, string>; } = { headers: {} }): Promise<{ parsed: SerperImageSearchResponse; }> {
         const response = await fetch(SERPER_BING_IMAGE_API_ENDPOINT, {
             method: 'POST',
             headers: {
@@ -276,7 +274,7 @@ export class SerperBingHTTP {
         return { parsed: data };
     }
 
-    async newsSearch(query: SerperSearchQueryParams, options: { headers: Record<string, string>; } = { headers: {} }): Promise<{ parsed: SerperNewsSearchResponse; }> {
+    override async newsSearch(query: SerperSearchQueryParams, options: { headers: Record<string, string>; } = { headers: {} }): Promise<{ parsed: SerperNewsSearchResponse; }> {
         const response = await fetch(SERPER_BING_NEWS_API_ENDPOINT, {
             method: 'POST',
             headers: {
