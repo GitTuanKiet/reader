@@ -9,6 +9,42 @@ export interface SerperSearchQueryParams {
     page?: number;
 }
 
+export interface SerperWebSearchResponse extends SerperSearchResponse {
+
+}
+
+export interface SerperImageSearchResponse {
+    images: {
+        title: string;
+        link: string;
+        imageUrl: string;
+        source: string;
+        imageWidth?: number;
+        imageHeight?: number;
+    }[];
+
+    pagination?: {
+        currentPage: number;
+        nextPage?: number;
+    };
+}
+
+export interface SerperNewsSearchResponse {
+    news: {
+        title: string;
+        link: string;
+        snippet: string;
+        source: string;
+        date?: string;
+        position?: number;
+    }[];
+
+    pagination?: {
+        currentPage: number;
+        nextPage?: number;
+    };
+}
+
 export interface SerperSearchResponse {
     organic: {
         link: string;
@@ -39,6 +75,11 @@ export interface SerperSearchResponse {
 }
 
 const SERPER_API_ENDPOINT = 'https://google.serper.dev/search';
+const SERPER_IMAGE_API_ENDPOINT = 'https://google.serper.dev/images';
+const SERPER_NEWS_API_ENDPOINT = 'https://google.serper.dev/news';
+const SERPER_BING_API_ENDPOINT = 'https://bing.serper.dev/search';
+const SERPER_BING_IMAGE_API_ENDPOINT = 'https://bing.serper.dev/images';
+const SERPER_BING_NEWS_API_ENDPOINT = 'https://bing.serper.dev/news';
 
 @singleton()
 export class SerperGoogleHTTP {
@@ -48,7 +89,7 @@ export class SerperGoogleHTTP {
         this.apiKey = apiKey;
     }
 
-    async webSearch(query: SerperSearchQueryParams, options: { headers: Record<string, string>; } = { headers: {} }) {
+    async webSearch(query: SerperSearchQueryParams, options: { headers: Record<string, string>; } = { headers: {} }): Promise<{ parsed: SerperWebSearchResponse; }> {
         const response = await fetch(SERPER_API_ENDPOINT, {
             method: 'POST',
             headers: {
@@ -91,6 +132,177 @@ export class SerperGoogleHTTP {
         };
 
         return { parsed };
+    }
+
+    async imageSearch(query: SerperSearchQueryParams, options: { headers: Record<string, string>; } = { headers: {} }): Promise<{ parsed: SerperImageSearchResponse; }> {
+        const response = await fetch(SERPER_IMAGE_API_ENDPOINT, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-KEY': this.apiKey,
+                ...options.headers
+            },
+            body: JSON.stringify({
+                q: query.q,
+                page: query.page || 1,
+                num: query.num || 10,
+                gl: query.gl,
+                hl: query.hl,
+                location: query.location
+            })
+        });
+
+        if (!response.ok) {
+            const error = new Error(`Serper API error: ${response.statusText}`);
+            (error as any).status = response.status;
+            throw error;
+        }
+
+        const data = await response.json() as SerperImageSearchResponse;
+
+        return { parsed: data };
+    }
+
+    async newsSearch(query: SerperSearchQueryParams, options: { headers: Record<string, string>; } = { headers: {} }): Promise<{ parsed: SerperNewsSearchResponse; }> {
+        const response = await fetch(SERPER_NEWS_API_ENDPOINT, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-KEY': this.apiKey,
+                ...options.headers
+            },
+            body: JSON.stringify({
+                q: query.q,
+                page: query.page || 1,
+                num: query.num || 10,
+                gl: query.gl,
+                hl: query.hl,
+                location: query.location
+            })
+        });
+
+        if (!response.ok) {
+            const error = new Error(`Serper API error: ${response.statusText}`);
+            (error as any).status = response.status;
+            throw error;
+        }
+
+        const data = await response.json() as SerperNewsSearchResponse;
+
+        return { parsed: data };
+    }
+}
+
+@singleton()
+export class SerperBingHTTP {
+    private apiKey: string;
+
+    constructor(apiKey: string) {
+        this.apiKey = apiKey;
+    }
+
+    async webSearch(query: SerperSearchQueryParams, options: { headers: Record<string, string>; } = { headers: {} }): Promise<{ parsed: SerperWebSearchResponse; }> {
+        const response = await fetch(SERPER_BING_API_ENDPOINT, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-KEY': this.apiKey,
+                ...options.headers
+            },
+            body: JSON.stringify({
+                q: query.q,
+                page: query.page || 1,
+                num: query.num || 10,
+                gl: query.gl,
+                hl: query.hl,
+                location: query.location
+            })
+        });
+
+        if (!response.ok) {
+            const error = new Error(`Serper Bing API error: ${response.statusText}`);
+            (error as any).status = response.status;
+            throw error;
+        }
+
+        const data = await response.json() as SerperWebSearchResponse;
+
+        // Ensure consistent format between Google and Bing results
+        const parsed = {
+            web: {
+                results: data?.organic?.map(r => ({
+                    url: r.link,
+                    title: r.title,
+                    description: r.snippet,
+                    position: r.position
+                })) || [],
+            },
+            organic: data.organic,
+            knowledgeGraph: data.knowledgeGraph,
+            answerBox: data.answerBox,
+            relatedSearches: data.relatedSearches,
+            pagination: data.pagination
+        };
+
+        return { parsed };
+    }
+
+    async imageSearch(query: SerperSearchQueryParams, options: { headers: Record<string, string>; } = { headers: {} }): Promise<{ parsed: SerperImageSearchResponse; }> {
+        const response = await fetch(SERPER_BING_IMAGE_API_ENDPOINT, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-KEY': this.apiKey,
+                ...options.headers
+            },
+            body: JSON.stringify({
+                q: query.q,
+                page: query.page || 1,
+                num: query.num || 10,
+                gl: query.gl,
+                hl: query.hl,
+                location: query.location
+            })
+        });
+
+        if (!response.ok) {
+            const error = new Error(`Serper Bing API error: ${response.statusText}`);
+            (error as any).status = response.status;
+            throw error;
+        }
+
+        const data = await response.json() as SerperImageSearchResponse;
+
+        return { parsed: data };
+    }
+
+    async newsSearch(query: SerperSearchQueryParams, options: { headers: Record<string, string>; } = { headers: {} }): Promise<{ parsed: SerperNewsSearchResponse; }> {
+        const response = await fetch(SERPER_BING_NEWS_API_ENDPOINT, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-KEY': this.apiKey,
+                ...options.headers
+            },
+            body: JSON.stringify({
+                q: query.q,
+                page: query.page || 1,
+                num: query.num || 10,
+                gl: query.gl,
+                hl: query.hl,
+                location: query.location
+            })
+        });
+
+        if (!response.ok) {
+            const error = new Error(`Serper Bing API error: ${response.statusText}`);
+            (error as any).status = response.status;
+            throw error;
+        }
+
+        const data = await response.json() as SerperNewsSearchResponse;
+
+        return { parsed: data };
     }
 }
 

@@ -33,3 +33,10 @@ export class BudgetExceededError extends Error {
         this.name = 'BudgetExceededError';
     }
 }
+
+export class ServiceBadAttemptError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'ServiceBadAttemptError';
+    }
+}

@@ -23,6 +23,8 @@ export class LLMManager extends AsyncService {
     async* iterRun(model: string, config: {
         prompt: string | (string | URL | Buffer)[];
         options?: LLMOptions;
+        maxTrys?: number;
+        [key: string]: any;
     }) {
         const mockResponses = {
             'vertex-gemini-1.5-flash-002': [
