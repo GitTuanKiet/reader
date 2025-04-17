@@ -17,7 +17,6 @@ const port = process.env.PORT || 3000;
 
 const crawlerHost = container.resolve(CrawlerHost);
 (async () => {
-    ;
     await crawlerHost.init();
 })();
 

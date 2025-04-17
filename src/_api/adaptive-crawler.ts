@@ -185,7 +185,7 @@ export class LocalAdaptiveCrawlerHost extends AdaptiveCrawlerHost {
 
             const { title, description, links } = json.data;
             const relevantUrls = await this.getRelevantUrls(token, { title, description, links });
-            this.logger.debug(`Total urls: ${Object.keys(links || {}).length}, relevant urls: ${relevantUrls.length}`);
+            this.logger.debug(`Total urls: ${Object.keys(links).length}, relevant urls: ${relevantUrls.length}`);
 
             for (const url of relevantUrls) {
                 let abortContinue = false;
@@ -237,7 +237,7 @@ export class LocalAdaptiveCrawlerHost extends AdaptiveCrawlerHost {
             '.xlsx',
         ];
 
-        const validLinks = Object.entries(links || {})
+        const validLinks = Object.entries(links)
             .map(([title, link]) => link)
             .filter(link => link.startsWith('http') && !invalidSuffix.some(suffix => link.endsWith(suffix)));
 
@@ -292,6 +292,36 @@ export class LocalAdaptiveCrawlerHost extends AdaptiveCrawlerHost {
         const relevantUrls: Set<string> = new Set();
         let highestRelevanceScore = 0;
 
+        // for (let i = 0; i < validLinks.length; i += batchSize) {
+        //     const batch = validLinks.slice(i, i + batchSize);
+        //     const data = {
+        //         query,
+        //         texts: batch,
+        //         return_text: true,
+        //         truncate: true
+        //     };
+
+        //     const response = await fetch('http://reranker/rerank', {
+        //         method: 'POST',
+        //         headers: {
+        //             'Content-Type': 'application/json',
+        //         },
+        //         body: JSON.stringify(data)
+        //     });
+
+        //     const json = (await response.json()) as {
+        //         index: number;
+        //         score: number;
+        //         text: string;
+        //     }[];
+
+        //     highestRelevanceScore = Math.max(highestRelevanceScore, json[0]?.score ?? 0);
+        //     json.filter(r => r.score > Math.max(highestRelevanceScore * 0.6, 0.1)).map(r => relevantUrls.add(removeURLHash(r.text)));
+        // }
+
+        // return Array.from(relevantUrls).slice(0, 15);
+
+        const promises = [];
         for (let i = 0; i < validLinks.length; i += batchSize) {
             const batch = validLinks.slice(i, i + batchSize);
             const data = {
@@ -301,24 +331,28 @@ export class LocalAdaptiveCrawlerHost extends AdaptiveCrawlerHost {
                 truncate: true
             };
 
-            const response = await fetch('http://reranker/rerank', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(data)
-            });
-
-            const json = (await response.json()) as {
-                index: number;
-                score: number;
-                text: string;
-            }[];
-
-            highestRelevanceScore = Math.max(highestRelevanceScore, json[0]?.score ?? 0);
-            json.filter(r => r.score > Math.max(highestRelevanceScore * 0.6, 0.1)).map(r => relevantUrls.add(removeURLHash(r.text)));
+            promises.push(
+                fetch('http://reranker/rerank', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                })
+            );
         }
 
+        const responses = await Promise.all(promises);
+        const jsons = await Promise.all(responses.map(r => r.json())) as {
+            index: number;
+            score: number;
+            text: string;
+        }[][];
+        for (const json of jsons) {
+            const highestScore = json[0]?.score ?? 0;
+            highestRelevanceScore = Math.max(highestRelevanceScore, highestScore);
+            json.filter(r => r.score > Math.max(highestRelevanceScore * 0.6, 0.1)).map(r => relevantUrls.add(removeURLHash(r.text)));
+        }
         return Array.from(relevantUrls).slice(0, 15);
     }
 }

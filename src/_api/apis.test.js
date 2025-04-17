@@ -22,7 +22,7 @@ async function testAdaptiveCrawler(
             'Content-Type': 'application/json',
             ...(AUTH_TOKEN && { 'Authorization': `Bearer ${AUTH_TOKEN}` }),
             'X-Use-Sitemap': options.useSitemap !== undefined ? String(options.useSitemap) : 'true',
-            'X-Max-Pages': String(options.maxPages || 10)
+            'X-Max-Pages': String(options.maxPages || 10),
         },
         body: JSON.stringify({
             url
@@ -84,7 +84,8 @@ async function testCrawler(
             ...(options.removeSelector && { 'X-Remove-Selector': Array.isArray(options.removeSelector) ? options.removeSelector.join(', ') : options.removeSelector }),
             ...(options.withGeneratedAlt && { 'X-With-Generated-Alt': 'true' }),
             ...(options.retainImages && { 'X-Retain-Images': options.retainImages }),
-            ...(options.timeout && { 'X-Timeout': String(options.timeout) })
+            ...(options.timeout && { 'X-Timeout': String(options.timeout) }),
+            "x-with-links-summary": "all",
         },
         body: JSON.stringify({
             url
@@ -95,7 +96,7 @@ async function testCrawler(
         // You can also use the URL directly in the fetch for GET requests
         const response = await fetch(CRAWLER_URL, requestOptions);
         const data = await response.text();
-        console.log('Crawler Response:', JSON.stringify(data, null, 2));
+        console.log('Crawler Response:', JSON.stringify(JSON.parse(data), null, 2));
         return JSON.parse(data);
     } catch (error) {
         console.error('Error testing Crawler:', error);
@@ -163,20 +164,20 @@ async function testSearcher(
 if (require.main === module) {
     const runTests = async () => {
         // Test Crawler
-        await testCrawler('https://example.com', {
-            respondWith: 'markdown',
-            withGeneratedAlt: true,
-            retainImages: 'all',
-            timeout: 30
-        });
+        // await testCrawler('https://github.com', {
+        //     respondWith: 'markdown',
+        //     withGeneratedAlt: true,
+        //     retainImages: 'all',
+        //     timeout: 30
+        // });
 
         // Test Searcher
-        await testSearcher('example query', 5);
+        // await testSearcher('github', 5);
 
         // Test Adaptive Crawler
-        const adaptiveCrawlerResult = await testAdaptiveCrawler('https://example.com', {
-            useSitemap: true,
-            maxPages: 5
+        const adaptiveCrawlerResult = await testAdaptiveCrawler('https://github.com', {
+            useSitemap: false,
+            maxPages: 5,
         });
 
         // If there's a taskId, check its status

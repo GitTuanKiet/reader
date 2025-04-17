@@ -24,7 +24,7 @@ services:
     restart: always
     volumes:
       - model-data:/data
-    command: [ "--model-id", "BAAI/bge-reranker-base" ]
+    command: [ "--model-id", "Alibaba-NLP/gte-multilingual-reranker-base" ]
 
   app:
     build:
