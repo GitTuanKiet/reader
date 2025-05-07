@@ -1207,7 +1207,6 @@ export class PuppeteerControl extends AsyncService {
                 }
                 await Promise.race([Promise.allSettled([...pageScriptEvaluations, ...frameScriptEvaluations]), delayPromise])
                     .catch(() => void 0);
-                finalizationPromise = doFinalization();
                 return stuff;
             });
         if (options.waitForSelector) {
@@ -1229,16 +1228,16 @@ export class PuppeteerControl extends AsyncService {
                     });
                 return p as any;
             });
-
+            finalizationPromise = Promise.allSettled([waitForPromise, gotoPromise]).then(doFinalization);
+        } else {
+            finalizationPromise = gotoPromise.then(doFinalization);
         }
 
         try {
             let lastHTML = snapshot?.html;
             while (true) {
-                const ckpt = [nextSnapshotDeferred.promise, gotoPromise];
-                if (waitForPromise) {
-                    ckpt.push(waitForPromise);
-                }
+                const ckpt = [nextSnapshotDeferred.promise, waitForPromise ?? gotoPromise];
+
                 if (options.minIntervalMs) {
                     ckpt.push(delay(options.minIntervalMs));
                 }
