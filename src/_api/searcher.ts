@@ -9,7 +9,7 @@ import { OutputServerEventStream } from '../shared';
 import { JinaEmbeddingsAuthDTO } from '../dto/jina-embeddings-auth';
 import { CrawlerOptions, CrawlerOptionsHeaderOnly } from '../dto/crawler-options';
 import { BraveSearchExplicitOperatorsDto } from '../services/brave-search';
-import { SearcherHost } from '../api/searcher-serper';
+import { SearcherHost } from '../api/searcher';
 import { createKoaContextMock } from './_helpers';
 
 const app = express();

@@ -3,6 +3,7 @@ import { join } from 'path';
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs';
 import { readFile, writeFile } from 'fs/promises';
 import { Timestamp } from 'firebase-admin/firestore';
+import { randomUUID } from 'crypto';
 
 
 export class FirestoreRecord {
@@ -65,9 +66,12 @@ export class FirestoreRecord {
         };
 
         return {
-            doc: (id: string) => ({
-                get: async () => {
-                    const data = await this.fromFirestore(id);
+            doc: (id?: string) => ({
+                get: async (docId?: string) => {
+                    if (!docId && !id) {
+                        throw new Error('id is required');
+                    }
+                    const data = await this.fromFirestore(docId || id!);
                     for (const field of ['createdAt']) {
                         if (data[field]) {
                             data[field] = Timestamp.fromDate(data[field]);
@@ -79,11 +83,15 @@ export class FirestoreRecord {
                     };
                 },
                 set: async (data: any, options?: any) => {
+                    const dataId = id || data._id || randomUUID();
                     const collection = await this.getCollectionData();
-                    collection[id] = { ...data, _id: id };
+                    collection[dataId] = { ...data, _id: dataId };
                     await this.updateCollectionData(collection);
                 },
                 update: async (data: any) => {
+                    if (!id) {
+                        throw new Error('id is required');
+                    }
                     const collection = await this.getCollectionData();
                     collection[id] = { ...collection[id], ...data, _id: id };
                     await this.updateCollectionData(collection);
@@ -159,6 +167,17 @@ export class FirestoreRecord {
         return {
             runTransaction: async (callback: (transaction: TransactionType) => Promise<void>) => {
                 await callback(transaction);
+            },
+            batch: () => {
+                const promises: Promise<void>[] = [];
+                return {
+                    set: (docRef: any, data: any, options?: any) => {
+                        promises.push(transaction.set(docRef, data));
+                    },
+                    commit: async () => {
+                        await Promise.all(promises);
+                    }
+                };
             }
         };
     };

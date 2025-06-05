@@ -19,7 +19,7 @@ export class SecretExposer extends AsyncService {
         BRAVE_SEARCH_API_KEYS: [],
         BRAVE_SEARCH_API_KEY_ROTATION: 'sequential',
         SERPER_SEARCH_API_KEYS: [],
-        SERPER_SEARCH_API_KEY_ROTATION: 'sequential'
+        SERPER_SEARCH_API_KEY_ROTATION: 'sequential',
     };
 
     private currentKeyIndex = 0;
@@ -45,6 +45,10 @@ export class SecretExposer extends AsyncService {
 
     get CLOUD_FLARE_API_KEY() {
         return this.secrets.CLOUD_FLARE_API_KEY || process.env.CLOUD_FLARE_API_KEY || '';
+    }
+
+    get JINA_SERP_API_KEY() {
+        return this.SERPER_SEARCH_API_KEY;
     }
 
     private getNextBraveApiKey(): string {
