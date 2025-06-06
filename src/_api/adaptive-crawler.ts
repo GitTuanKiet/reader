@@ -25,11 +25,6 @@ const removeURLHash = (url: string) => {
 };
 
 
-const BASE_URL = process.env.BASE_URL as string;
-if (!BASE_URL) {
-    throw new Error('BASE_URL is not set');
-}
-
 @singleton()
 export class LocalAdaptiveCrawlerHost extends AdaptiveCrawlerHost {
     override async adaptiveCrawl(
@@ -138,7 +133,7 @@ export class LocalAdaptiveCrawlerHost extends AdaptiveCrawlerHost {
     override async handleSingleCrawl(shortDigest: string, url: string, token: string, cachePath: string) {
         const error = { reason: '' };
 
-        const response = await fetch(`${BASE_URL}/${url}`, {
+        const response = await fetch(`http://localhost:3000/${url}`, {
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`,
@@ -164,7 +159,7 @@ export class LocalAdaptiveCrawlerHost extends AdaptiveCrawlerHost {
         shortDigest: string, url: string, token: string, meta: AdaptiveCrawlTask['meta'], cachePath: string
     ) {
         const error = { reason: '' };
-        const response = await fetch(`${BASE_URL}/${url}`, {
+        const response = await fetch(`http://localhost:3000/${url}`, {
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`,
@@ -183,7 +178,10 @@ export class LocalAdaptiveCrawlerHost extends AdaptiveCrawlerHost {
                 { metadata: { contentType: 'application/json' } }
             );
 
-            const { title, description, links } = json.data;
+            let links: Record<string, string> = json.data.links;
+            const domain = new URL(url).hostname;
+            links = Object.fromEntries(Object.entries(links).filter(([_, value]) => value.includes(domain)));
+            const { title, description } = json.data;
             const relevantUrls = await this.getRelevantUrls(token, { title, description, links });
             this.logger.debug(`Total urls: ${Object.keys(links).length}, relevant urls: ${relevantUrls.length}`);
 

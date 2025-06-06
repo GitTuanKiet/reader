@@ -13,14 +13,14 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 export function getBaseUrl() {
-    let baseUri;
+    let baseUrl;
     if (process.env.NODE_ENV === 'production') {
-        baseUri = process.env.BASE_URL!;
+        baseUrl = process.env.BASE_URL!;
     } else {
-        baseUri = 'http://localhost:3000';
+        baseUrl = 'http://localhost:3000';
     }
 
-    return baseUri.endsWith('/') ? baseUri.slice(0, -1) : baseUri;
+    return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
 }
 
 interface CloudHTTPv2Config {
